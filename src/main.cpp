@@ -43,16 +43,9 @@ static void HTTP_ServerProcess(void);
 
 [[noreturn]]
 int main(int argc, char *argv[]) {
-    /* Initialize HAL */
     HAL_Init();
-
-    /* Configure the system clock */
     SystemClock_Config();
-
-    /* Initialize LEDs */
     LED_Init();
-
-    /* Initialize error handler */
     Error_Handler_Init();
 
     trace_printf("\n\n");
@@ -61,7 +54,6 @@ int main(int argc, char *argv[]) {
     trace_printf("========================================\n");
     trace_printf("Initializing...\n\n");
 
-    /* Initialize and connect WiFi */
     WiFi_InitAndConnect();
 
     trace_printf("\n========================================\n");
@@ -74,18 +66,12 @@ int main(int argc, char *argv[]) {
     /* Blink green LED to indicate ready state */
     BSP_LED_On(LED_GREEN);
 
-    /* Main loop - handle HTTP requests */
     while (1) {
         HTTP_ServerProcess();
-        HAL_Delay(10);
+        HAL_Delay(50);
     }
 }
 
-/**
- * @brief  Initialize and connect WiFi module
- * @param  None
- * @retval None
- */
 static void WiFi_InitAndConnect(void) {
     WIFI_Status_t status;
 
@@ -96,7 +82,7 @@ static void WiFi_InitAndConnect(void) {
                      status);
         Error_Handler("WiFi Init Failed");
     }
-    trace_printf("  ✓ WiFi module initialized\n");
+    trace_printf("  -> WiFi module initialized\n");
 
     trace_printf("\nStep 2: Connecting to network '%s'...\n", WIFI_SSID);
     status = WIFI_Connect(WIFI_SSID, WIFI_PASSWORD, WIFI_ECN_WPA2_PSK);
@@ -105,7 +91,7 @@ static void WiFi_InitAndConnect(void) {
         trace_printf("  Check SSID and password in wifi_conf.hpp\n");
         Error_Handler("WiFi Connect Failed");
     }
-    trace_printf("  ✓ Connected to WiFi network\n");
+    trace_printf("  -> Connected to WiFi network\n");
 
     trace_printf("\nStep 3: Getting IP address...\n");
     status = WIFI_GetIP_Address(ip_addr);
@@ -113,7 +99,7 @@ static void WiFi_InitAndConnect(void) {
         trace_printf("ERROR: Failed to get IP address! (Status: %d)\n", status);
         Error_Handler("Get IP Failed");
     }
-    trace_printf("  ✓ IP Address: %d.%d.%d.%d\n", ip_addr[0], ip_addr[1],
+    trace_printf("  -> IP Address: %d.%d.%d.%d\n", ip_addr[0], ip_addr[1],
                  ip_addr[2], ip_addr[3]);
 
     trace_printf("\nStep 4: Starting HTTP server on port %d...\n",
@@ -124,7 +110,7 @@ static void WiFi_InitAndConnect(void) {
                      status);
         Error_Handler("HTTP Server Start Failed");
     }
-    trace_printf("  ✓ HTTP server started\n");
+    trace_printf("  -> HTTP server started\n");
 }
 
 /**
@@ -133,25 +119,42 @@ static void WiFi_InitAndConnect(void) {
  * @retval None
  */
 static void HTTP_ServerProcess(void) {
+    static uint32_t request_count = 0;
+    static uint32_t restart_until = 0;
     uint16_t recv_len = 0;
     uint16_t sent_len = 0;
     WIFI_Status_t status;
+    
+    /* Skip receive if we're in restart period */
+    if (HAL_GetTick() < restart_until) {
+        return;  /* Still in restart period */
+    }
 
-    /* Try to receive data */
+    /* Try to receive data (non-blocking) */
     status = WIFI_ReceiveData(0, http_buffer, HTTP_BUFFER_SIZE - 1, &recv_len);
 
-    if (status == WIFI_STATUS_OK && recv_len > 0) {
-        /* Null-terminate received data */
-        http_buffer[recv_len] = '\0';
+    /* Silently ignore socket errors - these are expected when no client is connected
+     * or during socket state transitions after restart. Only process valid data. */
+    if (status != WIFI_STATUS_OK || recv_len == 0) {
+        return;  /* No data available or socket not ready */
+    }
 
-        trace_printf("Received HTTP request (%d bytes)\n", recv_len);
+    /* We have valid data - process the request */
+    if (recv_len > 0) {
+        http_buffer[recv_len] = '\0';
+        request_count++;
+
+        char *request_line = strtok((char *)http_buffer, "\r\n");
+        trace_printf("[%lu] %s\n", request_count, request_line ? request_line : "Invalid request");
 
         /* Toggle green LED on each request */
         BSP_LED_Toggle(LED_GREEN);
 
+        /* Restore buffer for processing (strtok modified it) */
+        http_buffer[recv_len] = '\0';
+
         /* Check if it's a GET request */
         if (strncmp((char *)http_buffer, "GET", 3) == 0) {
-            /* Prepare HTTP response */
             char response[1024];
             snprintf(response, sizeof(response), "%s%s", HTTP_RESPONSE_HEADER,
                      HTML_PAGE);
@@ -161,32 +164,29 @@ static void HTTP_ServerProcess(void) {
                                    &sent_len);
 
             if (status == WIFI_STATUS_OK) {
-                trace_printf("  → Sent response (%d bytes)\n", sent_len);
+                trace_printf("[%lu] Sent response (%d bytes)\n", request_count, sent_len);
             } else {
-                trace_printf(
-                    "  → ERROR: Failed to send response (Status: %d)\n",
-                    status);
+                trace_printf("[%lu] ERROR: Failed to send response (Status: %d)\n",
+                           request_count, status);
             }
         }
 
-        /* In single-connection mode, restart server after each request */
-        trace_printf("  → Restarting server for next connection...\n");
+        /* Close the client connection properly */
+        HAL_Delay(100);  /* Give time for client to receive response */
+        WIFI_CloseClientConnection();
+        
+        restart_until = HAL_GetTick() + 300;
+        
+        HAL_Delay(100);
         WIFI_StopServer(0);
         HAL_Delay(100);
         status = WIFI_StartServer(0, WIFI_TCP_PROTOCOL, "HTTP", HTTP_SERVER_PORT);
-        if (status == WIFI_STATUS_OK) {
-            trace_printf("  → Server ready for next request\n");
-        } else {
-            trace_printf("  → ERROR: Failed to restart server (Status: %d)\n", status);
+        if (status != WIFI_STATUS_OK) {
+            trace_printf("ERROR: Failed to restart server (Status: %d)\n", status);
         }
     }
 }
 
-/**
- * @brief  Initialize LEDs
- * @param  None
- * @retval None
- */
 static void LED_Init(void) {
     BSP_LED_Init(LED_GREEN);
     BSP_LED_Init(LED_RED);
@@ -194,11 +194,6 @@ static void LED_Init(void) {
     BSP_LED_Off(LED_RED);
 }
 
-/**
- * @brief  System Clock Configuration
- * @param  None
- * @retval None
- */
 static void SystemClock_Config(void) {
     RCC_OscInitTypeDef RCC_OscInitStruct = {0};
     RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
