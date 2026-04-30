@@ -38,12 +38,21 @@ typedef enum {
     SERVER_STATE_SENT_RESPONSE
 } ServerState_t;
 
+/* Connection tracking */
+typedef struct {
+    uint8_t is_active;           /* Connection is active */
+    uint8_t needs_close;         /* Connection should be closed */
+    uint32_t last_activity_ms;   /* Last activity timestamp */
+    uint32_t timeout_ms;         /* Timeout for this connection */
+} ConnectionState_t;
+
 /* Private variables ---------------------------------------------------------*/
 static uint8_t http_buffer[HTTP_BUFFER_SIZE];
 static uint8_t ip_addr[4];
 static ServerState_t server_state = SERVER_STATE_IDLE;
 static uint32_t request_count = 0;
 static uint8_t restart_step = 0;
+static ConnectionState_t connection_state = {0, 0, 0, 5000}; /* 5 second default timeout */
 
 /* Private function prototypes -----------------------------------------------*/
 static void SystemClock_Config(void);
@@ -164,14 +173,14 @@ static void HTTP_ServerProcess(void) {
         http_buffer[recv_len] = '\0';
 
         /* Filter out WiFi module status messages */
-        if (strstr((char *)http_buffer, "[SOMA]") != NULL ||
-            strstr((char *)http_buffer, "[EOMA]") != NULL ||
-            strstr((char *)http_buffer, "Unhandled Socket") != NULL ||
-            strstr((char *)http_buffer, "TCP SVR") != NULL ||
-            strcmp((char *)http_buffer, "-1") == 0 ||
-            (recv_len <= 3 && http_buffer[0] == '-')) {
-            return; /* Silently ignore status messages */
-        }
+        // if (strstr((char *)http_buffer, "[SOMA]") != NULL ||
+        //     strstr((char *)http_buffer, "[EOMA]") != NULL ||
+        //     strstr((char *)http_buffer, "Unhandled Socket") != NULL ||
+        //     strstr((char *)http_buffer, "TCP SVR") != NULL ||
+        //     strcmp((char *)http_buffer, "-1") == 0 ||
+        //     (recv_len <= 3 && http_buffer[0] == '-')) {
+        //     return; /* Silently ignore status messages */
+        // }
 
         /* This appears to be an actual HTTP request */
         request_count++;
@@ -188,45 +197,85 @@ static void HTTP_ServerProcess(void) {
 
         /* Check if it's a GET request */
         if (strncmp((char *)http_buffer, "GET", 3) == 0) {
-            char response[1024];
-            snprintf(response, sizeof(response), "%s%s", HTTP_RESPONSE_HEADER,
-                     HTML_PAGE);
+            /* Mark connection as active and update timestamp */
+            connection_state.is_active = 1;
+            connection_state.last_activity_ms = HAL_GetTick();
 
-            /* Send response */
-            status = WIFI_SendData(0, (uint8_t *)response, strlen(response),
-                                   &sent_len);
+            /* Check if this is a request for streaming data (e.g., /api/data) */
+            if (strstr((char *)http_buffer, "GET /api/data") != NULL) {
+                /* API endpoint - keep connection open for streaming */
+                connection_state.needs_close = 0;
+                connection_state.timeout_ms = 30000; /* 30 second timeout for data streaming */
 
-            if (status == WIFI_STATUS_OK) {
-                trace_printf("[%lu] Sent response (%d bytes)\n", request_count,
-                             sent_len);
-                
-                /* Turn green LED back on after successful response */
-                BSP_LED_On(LED_GREEN);
-                
-                /* Wait for data transmission */
-                HAL_Delay(250);
-                
-                /* Close connection */
-                WIFI_CloseClientConnection();
-                trace_printf("  -> Connection closed\n");
-                
-                /* Stop and restart server to accept new connections */
-                WIFI_StopServer(0);
-                trace_printf("  -> Server stopped\n");
-                
-                HAL_Delay(100);
-                
-                status = WIFI_StartServer(0, WIFI_TCP_PROTOCOL, "HTTP", HTTP_SERVER_PORT);
+                trace_printf("[%lu] API request - connection will stay open\n", request_count);
+
+                /* TODO: Send JSON response with magnetic sensor data */
+                /* For now, send a simple JSON response */
+                char response[512];
+                snprintf(response, sizeof(response),
+                         "HTTP/1.1 200 OK\r\n"
+                         "Content-Type: application/json\r\n"
+                         "Access-Control-Allow-Origin: *\r\n"
+                         "\r\n"
+                         "{\"status\":\"ok\",\"magnetic_x\":0,\"magnetic_y\":0,\"magnetic_z\":0}");
+
+                status = WIFI_SendData(0, (uint8_t *)response, strlen(response), &sent_len);
+
                 if (status == WIFI_STATUS_OK) {
-                    trace_printf("  -> Server restarted, ready for next request\n");
+                    trace_printf("[%lu] Sent API response (%d bytes)\n", request_count, sent_len);
+                    /* Don't close - let client close or timeout */
+                    BSP_LED_On(LED_GREEN);
                 } else {
-                    trace_printf("  -> ERROR: Failed to restart server!\n");
+                    trace_printf("[%lu] ERROR: Failed to send API response\n", request_count);
+                    connection_state.needs_close = 1;
                 }
             } else {
-                trace_printf(
-                    "[%lu] ERROR: Failed to send response (Status: %d)\n",
-                    request_count, status);
-                BSP_LED_On(LED_GREEN);
+                /* Regular webpage request - close after sending */
+                connection_state.needs_close = 1;
+                connection_state.timeout_ms = 5000; /* 5 second timeout */
+
+                char response[1024];
+                snprintf(response, sizeof(response), "%s%s", HTTP_RESPONSE_HEADER, HTML_PAGE);
+
+                /* Send response */
+                status = WIFI_SendData(0, (uint8_t *)response, strlen(response), &sent_len);
+
+                if (status == WIFI_STATUS_OK) {
+                    trace_printf("[%lu] Sent webpage response (%d bytes)\n", request_count, sent_len);
+
+                    /* Close connection immediately after sending webpage */
+                    WIFI_CloseClientConnection();
+                    trace_printf("  -> Connection closed immediately\n");
+
+                    /* Reset connection state */
+                    connection_state.is_active = 0;
+                    connection_state.needs_close = 0;
+
+                    /* Turn green LED back on after successful response */
+                    BSP_LED_On(LED_GREEN);
+
+                    /* Stop and restart server to accept new connections */
+                    WIFI_StopServer(0);
+                    trace_printf("  -> Server stopped\n");
+
+                    /* Brief delay before restart */
+                    HAL_Delay(100);
+
+                    status = WIFI_StartServer(0, WIFI_TCP_PROTOCOL, "HTTP", HTTP_SERVER_PORT);
+                    if (status == WIFI_STATUS_OK) {
+                        trace_printf("  -> Server restarted, ready for next request\n");
+                    } else {
+                        trace_printf("  -> ERROR: Failed to restart server!\n");
+                    }
+                } else {
+                    trace_printf("[%lu] ERROR: Failed to send response (Status: %d)\n",
+                                request_count, status);
+                    /* Close connection even on error to prevent socket leak */
+                    WIFI_CloseClientConnection();
+                    connection_state.is_active = 0;
+                    connection_state.needs_close = 0;
+                    BSP_LED_On(LED_GREEN);
+                }
             }
 
             /* Return to idle */
@@ -241,19 +290,62 @@ static void HTTP_ServerProcess(void) {
  * @retval None
  */
 static void HTTP_ServerMaintenance(void) {
-    /* No maintenance needed - all handled inline in HTTP_ServerProcess */
-    /* This function kept for future use if needed */
+    /* Check for connection timeout */
+    if (connection_state.is_active) {
+        uint32_t current_time = HAL_GetTick();
+        uint32_t elapsed = current_time - connection_state.last_activity_ms;
+
+        if (elapsed > connection_state.timeout_ms) {
+            trace_printf("Connection timeout (%lu ms) - closing\n", elapsed);
+
+            /* Close the connection */
+            WIFI_CloseClientConnection();
+
+            /* Reset connection state */
+            connection_state.is_active = 0;
+            connection_state.needs_close = 0;
+
+            /* Restart server to accept new connections */
+            WIFI_StopServer(0);
+            HAL_Delay(100);
+
+            WIFI_Status_t status = WIFI_StartServer(0, WIFI_TCP_PROTOCOL, "HTTP", HTTP_SERVER_PORT);
+            if (status == WIFI_STATUS_OK) {
+                trace_printf("  -> Server restarted after timeout\n");
+            } else {
+                trace_printf("  -> ERROR: Failed to restart server after timeout!\n");
+            }
+        }
+    }
+
+    /* Check if connection needs to be closed (flagged by error or other condition) */
+    if (connection_state.needs_close && connection_state.is_active) {
+        trace_printf("Closing connection as requested\n");
+
+        WIFI_CloseClientConnection();
+        connection_state.is_active = 0;
+        connection_state.needs_close = 0;
+
+        /* Restart server */
+        WIFI_StopServer(0);
+        HAL_Delay(100);
+
+        WIFI_Status_t status = WIFI_StartServer(0, WIFI_TCP_PROTOCOL, "HTTP", HTTP_SERVER_PORT);
+        if (status == WIFI_STATUS_OK) {
+            trace_printf("  -> Server restarted\n");
+        }
+    }
 }
 
 static void LED_Init(void) {
     GPIO_InitTypeDef GPIO_InitStruct = {0};
-    
+
     /* Initialize user LEDs */
     BSP_LED_Init(LED_GREEN);
     BSP_LED_Init(LED_RED);
     BSP_LED_Off(LED_GREEN);
     BSP_LED_Off(LED_RED);
-    
+
     /* Initialize MEMS_LED (PE4) and ensure it's off to prevent dim glow */
     __HAL_RCC_GPIOE_CLK_ENABLE();
     GPIO_InitStruct.Pin = GPIO_PIN_4;
