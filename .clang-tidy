@@ -117,7 +117,7 @@ CheckOptions:
     value: true
 
 # Header filter - check all project headers
-HeaderFilterRegex: '.*'
+HeaderFilterRegex: '(.*/)?(src|include)/.*'
 
 # Treat warnings as errors (set to false for initial setup)
 WarningsAsErrors: ''
