@@ -29,6 +29,12 @@
 /* Private macro -------------------------------------------------------------*/
 /* Private variables ---------------------------------------------------------*/
 SPI_HandleTypeDef hspi;
+volatile uint8_t wifi_data_ready_flag = 0;  /* Flag set by interrupt */
+
+/* Interrupt communication flags for main loop */
+volatile uint8_t http_process_flag = 0;      /* Set when HTTP request needs processing */
+volatile uint8_t server_maintenance_flag = 0; /* Set when server maintenance needed */
+volatile uint32_t maintenance_timer = 0;      /* Timer for periodic maintenance */
 
 /* Private function prototypes -----------------------------------------------*/
 
@@ -60,12 +66,16 @@ void SPI_WIFI_MspInit(SPI_HandleTypeDef* hspi)
   GPIO_Init.Speed     = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_Init);
 
-  /* Configure Data Ready pin (GPIOG, PIN_12) */
+  /* Configure Data Ready pin (GPIOG, PIN_12) as interrupt on rising edge */
   GPIO_Init.Pin       = GPIO_PIN_12;
   GPIO_Init.Mode      = GPIO_MODE_IT_RISING;
   GPIO_Init.Pull      = GPIO_NOPULL;
   GPIO_Init.Speed     = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOG, &GPIO_Init);
+  
+  /* Enable and set EXTI line 12 Interrupt to the lowest priority */
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 2, 0);
+  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
   /* Configure Reset pin (GPIOH, PIN_1) */
   HAL_GPIO_WritePin(GPIOH, GPIO_PIN_1, GPIO_PIN_SET);
@@ -361,4 +371,19 @@ int16_t SPI_WIFI_SendData( uint8_t *pdata,  uint16_t len, uint32_t timeout)
 void SPI_WIFI_Delay(uint32_t Delay)
 {
   HAL_Delay(Delay);
+}
+
+/**
+  * @brief  GPIO EXTI callback for WiFi Data Ready interrupt
+  * @param  GPIO_Pin: Specifies the pins connected to the EXTI line
+  * @retval None
+  */
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+  if (GPIO_Pin == GPIO_PIN_12)
+  {
+    /* WiFi Data Ready interrupt - set flags for main loop processing */
+    wifi_data_ready_flag = 1;
+    http_process_flag = 1;  /* Signal main loop to process HTTP request */
+  }
 }
