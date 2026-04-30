@@ -131,3 +131,11 @@ void I2C2_ER_IRQHandler(void)
 {
   HAL_I2C_ER_IRQHandler(&I2cHandle);
 }
+
+/**
+  * @brief This function handles EXTI line0 interrupt (User Button on PA0).
+  */
+void EXTI0_IRQHandler(void)
+{
+  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_0);
+}

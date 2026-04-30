@@ -1,5 +1,5 @@
 /*
- * BMP280 thermometer → LIS3MDL magnetometer adaptation
+ * LIS3MDL magnetometer with button interrupt
  */
 
 #include <stdio.h>
@@ -22,6 +22,12 @@ uint8_t I2Cx_ReadBuffer(uint8_t Addr, uint8_t Reg, uint8_t *pBuffer, uint16_t Le
 #define BSP_I2C_SPEED                            100000
 #endif
 #define I2Cx_TIMEOUT_MAX                         0x3000
+
+// ---- Button definitions ---------------------------------------------------
+#define BUTTON_PIN                               GPIO_PIN_0
+#define BUTTON_GPIO_PORT                         GPIOA
+#define BUTTON_GPIO_CLK_ENABLE()                 __HAL_RCC_GPIOA_CLK_ENABLE()
+#define BUTTON_EXTI_IRQn                         EXTI0_IRQn
 
 // ---- LIS3MDL definitions --------------------------------------------------
 // SA1 pin → GND = 0x1C, SA1 pin → VCC = 0x1E
@@ -61,18 +67,65 @@ DMA_HandleTypeDef hdma_i2c_rx;
 
 volatile uint8_t i2c_tx_complete = 0;
 volatile uint8_t i2c_rx_complete = 0;
+volatile uint8_t button_pressed_flag = 0;
+
+/* Function prototypes ------------------------------------------------------*/
+static void Button_GPIO_Init(void);
+static void LIS3MDL_Init(void);
+static void LIS3MDL_ReadMagnetometer(void);
 
 /* Main ---------------------------------------------------------------------*/
 int main(void) {
-    uint8_t rawBuffer[LIS3MDL_XYZ_REG_SIZE];
-    uint8_t DevAddr = LIS3MDL_I2C_ADDRESS << 1;
-
+    HAL_Init();
+    
     BSP_LED_Init(LED3);
-    BSP_PB_Init(BUTTON_WAKEUP, BUTTON_MODE_GPIO);
-
+    
+    Button_GPIO_Init();
     I2Cx_Init();
+    LIS3MDL_Init();
 
-    // --- Verify device identity ---
+    trace_printf("LIS3MDL configured. Press button to read magnetometer.\n");
+
+    // Main loop - check flag set by interrupt
+    while (1) {
+        if (button_pressed_flag) {
+            button_pressed_flag = 0;
+            LIS3MDL_ReadMagnetometer();
+        }
+        // CPU can enter low-power mode here if needed
+        __WFI();  // Wait For Interrupt
+    }
+}
+
+/**
+ * @brief  Configure button GPIO as external interrupt
+ * @retval None
+ */
+static void Button_GPIO_Init(void) {
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+    
+    // Enable GPIO clock
+    BUTTON_GPIO_CLK_ENABLE();
+    
+    // Configure GPIO pin as interrupt on rising edge
+    GPIO_InitStruct.Pin = BUTTON_PIN;
+    GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    HAL_GPIO_Init(BUTTON_GPIO_PORT, &GPIO_InitStruct);
+    
+    // Set EXTI interrupt priority and enable it
+    HAL_NVIC_SetPriority(BUTTON_EXTI_IRQn, 0, 0);
+    HAL_NVIC_EnableIRQ(BUTTON_EXTI_IRQn);
+}
+
+/**
+ * @brief  Initialize LIS3MDL magnetometer
+ * @retval None
+ */
+static void LIS3MDL_Init(void) {
+    uint8_t DevAddr = LIS3MDL_I2C_ADDRESS << 1;
+    
+    // Verify device identity
     uint8_t who = I2Cx_ReadData(DevAddr, LIS3MDL_REG_WHO_AM_I);
     trace_printf("WHO_AM_I: 0x%02X (expected 0x3D)\n", who);
     if (who != 0x3D) {
@@ -81,83 +134,88 @@ int main(void) {
         while (1) {}
     }
 
-    // --- Configure LIS3MDL ---
-    //
-    // CTRL_REG1 (0x20):
-    //   [7]   TEMP_EN  = 0  (temp sensor off, not needed)
-    //   [6:5] OM       = 11 (ultra-high performance XY)
-    //   [4:2] DO       = 100 (ODR = 10 Hz)
-    //   [1]   FAST_ODR = 0
-    //   [0]   ST       = 0  (self-test off)
-    //   → 0b0110_1000 = 0x60  (ultra-high perf XY + 10 Hz)
+    // Configure LIS3MDL
+    // CTRL_REG1: Ultra-high performance XY + 10 Hz ODR
     I2Cx_WriteData(DevAddr, LIS3MDL_REG_CTRL1, 0x60);
-
-    // CTRL_REG2 (0x21):
-    //   [6:5] FS = 00 → ±4 gauss (sensitivity = 6842 LSB/gauss)
-    //   [3]   REBOOT = 0
-    //   [2]   SOFT_RST = 0
-    //   → 0x00
+    
+    // CTRL_REG2: ±4 gauss full scale
     I2Cx_WriteData(DevAddr, LIS3MDL_REG_CTRL2, 0x00);
-
-    // CTRL_REG3 (0x22):
-    //   [1:0] MD = 00 → continuous-conversion mode
-    //   → 0x00
+    
+    // CTRL_REG3: Continuous-conversion mode
     I2Cx_WriteData(DevAddr, LIS3MDL_REG_CTRL3, 0x00);
-
-    // CTRL_REG4 (0x23):
-    //   [3:2] OMZ = 11 → ultra-high performance Z
-    //   → 0x0C
+    
+    // CTRL_REG4: Ultra-high performance Z
     I2Cx_WriteData(DevAddr, LIS3MDL_REG_CTRL4, 0x0C);
-
-    // CTRL_REG5 (0x24):
-    //   [6] BDU = 1 → block data update (prevents reading mixed old/new bytes)
-    //   → 0x40
+    
+    // CTRL_REG5: Block data update enabled
     I2Cx_WriteData(DevAddr, LIS3MDL_REG_CTRL5, 0x40);
+}
 
-    trace_printf("LIS3MDL configured. Waiting for button...\n");
+/**
+ * @brief  Read magnetometer data and display
+ * @retval None
+ */
+static void LIS3MDL_ReadMagnetometer(void) {
+    uint8_t rawBuffer[LIS3MDL_XYZ_REG_SIZE];
+    uint8_t DevAddr = LIS3MDL_I2C_ADDRESS << 1;
+    
+    trace_printf("Starting magnetometer read...\n");
+    BSP_LED_On(LED3);
+    
+    // Wait for data ready (optional)
+    uint8_t status = 0;
+    uint32_t drdy_timeout = 10000;
+    while (!(status & 0x08) && drdy_timeout--) {
+        status = I2Cx_ReadData(DevAddr, LIS3MDL_REG_STATUS);
+    }
+    
+    if (drdy_timeout == 0) {
+        trace_printf("Data ready timeout! Status: 0x%02X\n", status);
+    }
+    
+    // Read all 6 output bytes starting from OUT_X_L
+    trace_printf("Reading I2C buffer...\n");
+    uint8_t result = I2Cx_ReadBuffer(DevAddr, LIS3MDL_REG_OUT_X_L, rawBuffer, LIS3MDL_XYZ_REG_SIZE);
+    trace_printf("I2C read result: %d\n", result);
+    
+    if (result != 0) {
+        trace_printf("I2C Error occurred.\n");
+        BSP_LED_On(LED4);
+        return;
+    }
+    
+    // Reconstruct signed 16-bit values (little-endian)
+    int16_t raw_x = (int16_t)(rawBuffer[1] << 8 | rawBuffer[0]);
+    int16_t raw_y = (int16_t)(rawBuffer[3] << 8 | rawBuffer[2]);
+    int16_t raw_z = (int16_t)(rawBuffer[5] << 8 | rawBuffer[4]);
+    
+    trace_printf("Raw  X=%d  Y=%d  Z=%d\n", raw_x, raw_y, raw_z);
+    
+    // Convert to gauss
+    float mag_x = raw_x / LIS3MDL_SENSITIVITY;
+    float mag_y = raw_y / LIS3MDL_SENSITIVITY;
+    float mag_z = raw_z / LIS3MDL_SENSITIVITY;
+    
+    trace_printf("Mag  X=%.4f  Y=%.4f  Z=%.4f  (gauss)\n", mag_x, mag_y, mag_z);
+    
+    BSP_LED_Off(LED3);
+    trace_printf("Magnetometer read complete.\n");
+}
 
-    // --- Main loop ---
-    while (1) {
-        BSP_LED_Off(LED3);
-
-        while (BSP_PB_GetState(BUTTON_WAKEUP) != 1) {}
-        while (BSP_PB_GetState(BUTTON_WAKEUP) != 0) {}
-
-        // Optional: wait for DRDY (bit 3 of STATUS_REG = ZYXDA)
-        uint8_t status = 0;
-        uint32_t drdy_timeout = 10000;
-        while (!(status & 0x08) && drdy_timeout--) {
-            status = I2Cx_ReadData(DevAddr, LIS3MDL_REG_STATUS);
-        }
-
-        // Read all 6 output bytes starting from OUT_X_L
-        // LIS3MDL supports address auto-increment, so one ReadBuffer covers all axes
-        if (I2Cx_ReadBuffer(DevAddr, LIS3MDL_REG_OUT_X_L, rawBuffer, LIS3MDL_XYZ_REG_SIZE) != 0) {
-            trace_printf("I2C Error occurred.\n");
-            BSP_LED_On(LED4);
-            while (1) {}
-        }
-
-        BSP_LED_On(LED3);
-
-        // Reconstruct signed 16-bit values (little-endian: L byte first, H byte second)
-        int16_t raw_x = (int16_t)(rawBuffer[1] << 8 | rawBuffer[0]);
-        int16_t raw_y = (int16_t)(rawBuffer[3] << 8 | rawBuffer[2]);
-        int16_t raw_z = (int16_t)(rawBuffer[5] << 8 | rawBuffer[4]);
-
-        trace_printf("Raw  X=%d  Y=%d  Z=%d\n", raw_x, raw_y, raw_z);
-
-        // Convert to gauss
-        float mag_x = raw_x / LIS3MDL_SENSITIVITY;
-        float mag_y = raw_y / LIS3MDL_SENSITIVITY;
-        float mag_z = raw_z / LIS3MDL_SENSITIVITY;
-
-        trace_printf("Mag  X=%.4f  Y=%.4f  Z=%.4f  (gauss)\n", mag_x, mag_y, mag_z);
+/**
+ * @brief  GPIO EXTI callback - called when button interrupt occurs
+ * @param  GPIO_Pin: Pin number that triggered the interrupt
+ * @retval None
+ */
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+    if (GPIO_Pin == BUTTON_PIN) {
+        trace_puts("Button pressed\n");
+        button_pressed_flag = 1;
     }
 }
 
 /* --------------------------------------------------------------------------*/
-/* I2C / DMA infrastructure — unchanged from BMP280 version                  */
+/* I2C / DMA infrastructure                                                  */
 /* --------------------------------------------------------------------------*/
 
 static void I2Cx_MspInit(I2C_HandleTypeDef *hi2c) {
@@ -245,7 +303,7 @@ static uint8_t i2c_write_single_buf = 0;
 
 void I2Cx_WriteData(uint8_t Addr, uint8_t Reg, uint8_t Value) {
     HAL_StatusTypeDef status = HAL_OK;
-    i2c_write_single_buf = Value;  // copy to stable memory
+    i2c_write_single_buf = Value;
     i2c_tx_complete = 0;
 
     status = HAL_I2C_Mem_Write_DMA(&I2cHandle, Addr, (uint16_t)Reg,
@@ -257,7 +315,6 @@ void I2Cx_WriteData(uint8_t Addr, uint8_t Reg, uint8_t Value) {
     if (!i2c_tx_complete) I2Cx_Error();
 }
 
-// Add this with your other global variables at the top
 static uint8_t i2c_read_single_buf = 0;
 
 uint8_t I2Cx_ReadData(uint8_t Addr, uint8_t Reg) {
@@ -302,5 +359,3 @@ void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c) {
         I2Cx_Error();
     }
 }
-
-// Interrupt handlers moved to stm32f4xx_it.c
