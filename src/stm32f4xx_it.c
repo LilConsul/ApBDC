@@ -6,11 +6,7 @@
   */
 
 #include "stm32f4xx_hal.h"
-
-/* External variables --------------------------------------------------------*/
-extern DMA_HandleTypeDef hdma_i2c_tx;
-extern DMA_HandleTypeDef hdma_i2c_rx;
-extern I2C_HandleTypeDef I2cHandle;
+#include "i2c_dma.h"
 
 /******************************************************************************/
 /*           Cortex-M4 Processor Interruption and Exception Handlers          */
