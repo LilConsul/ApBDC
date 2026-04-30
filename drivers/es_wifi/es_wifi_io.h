@@ -48,9 +48,13 @@
 
 #define WIFI_IS_CMDDATA_READY()            (HAL_GPIO_ReadPin(GPIOG, GPIO_PIN_12) == GPIO_PIN_SET)
 
-    
+/* Exported variables --------------------------------------------------------*/
+extern volatile uint8_t wifi_data_ready_flag;
+extern volatile uint8_t http_process_flag;
+extern volatile uint8_t server_maintenance_flag;
+extern volatile uint32_t maintenance_timer;
 
-/* Exported functions ------------------------------------------------------- */ 
+/* Exported functions ------------------------------------------------------- */
 void    SPI_WIFI_MspInit(SPI_HandleTypeDef* hspi);
 int8_t  SPI_WIFI_DeInit(void);
 int8_t  SPI_WIFI_Init(void);

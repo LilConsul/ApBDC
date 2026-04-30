@@ -118,11 +118,16 @@ void HAL_SPI_MspInit(SPI_HandleTypeDef *hspi) {
         HAL_GPIO_WritePin(WIFI_WAKEUP_GPIO_PORT, WIFI_WAKEUP_PIN,
                           GPIO_PIN_RESET);
 
-        /* Configure DATA_READY pin (PE1) - Input */
-        GPIO_InitStruct.Pin = WIFI_DATAREADY_PIN;
-        GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+        /* Configure DATA_READY pin (PG12) - Input with interrupt on rising edge */
+        GPIO_InitStruct.Pin = GPIO_PIN_12;
+        GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
         GPIO_InitStruct.Pull = GPIO_NOPULL;
-        HAL_GPIO_Init(WIFI_DATAREADY_GPIO_PORT, &GPIO_InitStruct);
+        GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+        HAL_GPIO_Init(GPIOG, &GPIO_InitStruct);
+        
+        /* Enable and set EXTI line 12 Interrupt to the lowest priority */
+        HAL_NVIC_SetPriority(EXTI15_10_IRQn, 2, 0);
+        HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
     }
 }
 

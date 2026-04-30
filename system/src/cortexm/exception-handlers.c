@@ -610,12 +610,38 @@ PendSV_Handler (void)
     }
 }
 
+/* External maintenance timer variable from es_wifi_io.c */
+extern volatile uint32_t maintenance_timer;
+extern volatile uint8_t server_maintenance_flag;
+
 void __attribute__ ((section(".after_vectors"),weak))
 SysTick_Handler (void)
 {
 #if defined(USE_HAL_DRIVER)
   HAL_IncTick();
 #endif
+  
+  /* Increment maintenance timer (1ms resolution) */
+  if (maintenance_timer > 0)
+  {
+    maintenance_timer--;
+    if (maintenance_timer == 0)
+    {
+      /* Timer expired - signal maintenance needed */
+      server_maintenance_flag = 1;
+    }
+  }
+}
+
+// ----------------------------------------------------------------------------
+// WiFi Data Ready EXTI Interrupt Handler (GPIOG Pin 12 -> EXTI12)
+// ----------------------------------------------------------------------------
+
+void __attribute__ ((section(".after_vectors"),weak))
+EXTI15_10_IRQHandler(void)
+{
+  // Handle EXTI line 12 (WiFi Data Ready on GPIOG Pin 12)
+  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_12);
 }
 
 // ----------------------------------------------------------------------------
