@@ -1,8 +1,8 @@
 #include "diag/trace.h"
+#include "es_wifi_io.h"
 #include "stm32f413h_discovery.h"
 #include "stm32f4xx_hal.h"
 #include "wifi.h"
-#include "es_wifi_io.h"
 #include <stdio.h>
 #include <string.h>
 #include "error_handler.hpp"
@@ -35,10 +35,7 @@
 /* Server state machine states */
 typedef enum {
     SERVER_STATE_IDLE = 0,
-    SERVER_STATE_PROCESSING,
-    SERVER_STATE_SENT_RESPONSE,
-    SERVER_STATE_CLOSING,
-    SERVER_STATE_RESTARTING
+    SERVER_STATE_SENT_RESPONSE
 } ServerState_t;
 
 /* Private variables ---------------------------------------------------------*/
@@ -82,17 +79,19 @@ int main(int argc, char *argv[]) {
     BSP_LED_On(LED_GREEN);
 
     while (1) {
+        /* Process HTTP requests when flag is set */
         if (http_process_flag) {
             http_process_flag = 0;
             HTTP_ServerProcess();
         }
-        
+
+        /* Perform maintenance when timer expires */
         if (server_maintenance_flag) {
             server_maintenance_flag = 0;
             HTTP_ServerMaintenance();
         }
-        
-        __WFI();  /* Wait For Interrupt */
+
+        __WFI();
     }
 }
 
@@ -146,13 +145,13 @@ static void HTTP_ServerProcess(void) {
     uint16_t recv_len = 0;
     uint16_t sent_len = 0;
     WIFI_Status_t status;
-    
+
     /* Only process if in idle state */
     if (server_state != SERVER_STATE_IDLE) {
-        return;  /* Server busy with maintenance */
+        return; /* Server busy with maintenance */
     }
-    
-    /* Try to receive data (non-blocking) */
+
+    /* Try to receive data */
     status = WIFI_ReceiveData(0, http_buffer, HTTP_BUFFER_SIZE - 1, &recv_len);
 
     /* Silently ignore socket errors */
@@ -163,7 +162,7 @@ static void HTTP_ServerProcess(void) {
     /* We have valid data - check what it is */
     if (recv_len > 0) {
         http_buffer[recv_len] = '\0';
-        
+
         /* Filter out WiFi module status messages */
         if (strstr((char *)http_buffer, "[SOMA]") != NULL ||
             strstr((char *)http_buffer, "[EOMA]") != NULL ||
@@ -171,17 +170,18 @@ static void HTTP_ServerProcess(void) {
             strstr((char *)http_buffer, "TCP SVR") != NULL ||
             strcmp((char *)http_buffer, "-1") == 0 ||
             (recv_len <= 3 && http_buffer[0] == '-')) {
-            return;  /* Silently ignore status messages */
+            return; /* Silently ignore status messages */
         }
-        
+
         /* This appears to be an actual HTTP request */
         request_count++;
 
         char *request_line = strtok((char *)http_buffer, "\r\n");
-        trace_printf("[%lu] %s\n", request_count, request_line ? request_line : "Invalid request");
+        trace_printf("[%lu] %s\n", request_count,
+                     request_line ? request_line : "Invalid request");
 
-        /* Toggle green LED on each request */
-        BSP_LED_Toggle(LED_GREEN);
+        /* Blink green LED briefly on each request (turn off, will turn back on after processing) */
+        BSP_LED_Off(LED_GREEN);
 
         /* Restore buffer for processing (strtok modified it) */
         http_buffer[recv_len] = '\0';
@@ -197,15 +197,40 @@ static void HTTP_ServerProcess(void) {
                                    &sent_len);
 
             if (status == WIFI_STATUS_OK) {
-                trace_printf("[%lu] Sent response (%d bytes)\n", request_count, sent_len);
+                trace_printf("[%lu] Sent response (%d bytes)\n", request_count,
+                             sent_len);
+                
+                /* Turn green LED back on after successful response */
+                BSP_LED_On(LED_GREEN);
+                
+                /* Wait for data transmission */
+                HAL_Delay(250);
+                
+                /* Close connection */
+                WIFI_CloseClientConnection();
+                trace_printf("  -> Connection closed\n");
+                
+                /* Stop and restart server to accept new connections */
+                WIFI_StopServer(0);
+                trace_printf("  -> Server stopped\n");
+                
+                HAL_Delay(100);
+                
+                status = WIFI_StartServer(0, WIFI_TCP_PROTOCOL, "HTTP", HTTP_SERVER_PORT);
+                if (status == WIFI_STATUS_OK) {
+                    trace_printf("  -> Server restarted, ready for next request\n");
+                } else {
+                    trace_printf("  -> ERROR: Failed to restart server!\n");
+                }
             } else {
-                trace_printf("[%lu] ERROR: Failed to send response (Status: %d)\n",
-                           request_count, status);
+                trace_printf(
+                    "[%lu] ERROR: Failed to send response (Status: %d)\n",
+                    request_count, status);
+                BSP_LED_On(LED_GREEN);
             }
-            
-            /* Move to sent response state and set timer for connection close */
-            server_state = SERVER_STATE_SENT_RESPONSE;
-            maintenance_timer = 100;  /* 100ms delay to allow data transmission */
+
+            /* Return to idle */
+            server_state = SERVER_STATE_IDLE;
         }
     }
 }
@@ -216,58 +241,27 @@ static void HTTP_ServerProcess(void) {
  * @retval None
  */
 static void HTTP_ServerMaintenance(void) {
-    WIFI_Status_t status;
-    
-    /* Handle state transitions based on current state */
-    switch (server_state) {
-        case SERVER_STATE_IDLE:
-            /* Nothing to do in idle state */
-            break;
-
-        case SERVER_STATE_SENT_RESPONSE:
-            /* Close client connection after response sent */
-            WIFI_CloseClientConnection();
-            trace_printf("  -> Connection closed\n");
-            
-            /* Move to closing state and set timer */
-            server_state = SERVER_STATE_CLOSING;
-            maintenance_timer = 100;  /* 100ms delay before stopping server */
-            break;
-
-        case SERVER_STATE_CLOSING:
-            /* Stop server */
-            WIFI_StopServer(0);
-            trace_printf("  -> Server stopped\n");
-            
-            /* Move to restarting state and set timer */
-            server_state = SERVER_STATE_RESTARTING;
-            maintenance_timer = 100;  /* 100ms delay before restarting */
-            break;
-
-        case SERVER_STATE_RESTARTING:
-            /* Restart server */
-            status = WIFI_StartServer(0, WIFI_TCP_PROTOCOL, "HTTP", HTTP_SERVER_PORT);
-            if (status != WIFI_STATUS_OK) {
-                trace_printf("ERROR: Failed to restart server (Status: %d)\n", status);
-            } else {
-                trace_printf("  -> Server restarted\n");
-            }
-            
-            /* Return to idle state */
-            server_state = SERVER_STATE_IDLE;
-            break;
-
-        default:
-            server_state = SERVER_STATE_IDLE;
-            break;
-    }
+    /* No maintenance needed - all handled inline in HTTP_ServerProcess */
+    /* This function kept for future use if needed */
 }
 
 static void LED_Init(void) {
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+    
+    /* Initialize user LEDs */
     BSP_LED_Init(LED_GREEN);
     BSP_LED_Init(LED_RED);
     BSP_LED_Off(LED_GREEN);
     BSP_LED_Off(LED_RED);
+    
+    /* Initialize MEMS_LED (PE4) and ensure it's off to prevent dim glow */
+    __HAL_RCC_GPIOE_CLK_ENABLE();
+    GPIO_InitStruct.Pin = GPIO_PIN_4;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
+    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_4, GPIO_PIN_RESET);
 }
 
 static void SystemClock_Config(void) {

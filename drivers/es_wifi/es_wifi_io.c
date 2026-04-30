@@ -382,8 +382,12 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
   if (GPIO_Pin == GPIO_PIN_12)
   {
-    /* WiFi Data Ready interrupt - set flags for main loop processing */
-    wifi_data_ready_flag = 1;
-    http_process_flag = 1;  /* Signal main loop to process HTTP request */
+    /* WiFi Data Ready interrupt - only set flag if pin is actually HIGH */
+    /* This reduces spurious triggers from noise or glitches */
+    if (HAL_GPIO_ReadPin(GPIOG, GPIO_PIN_12) == GPIO_PIN_SET)
+    {
+      wifi_data_ready_flag = 1;
+      http_process_flag = 1;  /* Signal main loop to process HTTP request */
+    }
   }
 }
