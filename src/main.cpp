@@ -169,8 +169,16 @@ static void HTTP_ServerProcess(void) {
             }
         }
 
-        /* Small delay before next receive */
+        /* In single-connection mode, restart server after each request */
+        trace_printf("  → Restarting server for next connection...\n");
+        WIFI_StopServer(0);
         HAL_Delay(100);
+        status = WIFI_StartServer(0, WIFI_TCP_PROTOCOL, "HTTP", HTTP_SERVER_PORT);
+        if (status == WIFI_STATUS_OK) {
+            trace_printf("  → Server ready for next request\n");
+        } else {
+            trace_printf("  → ERROR: Failed to restart server (Status: %d)\n", status);
+        }
     }
 }
 
