@@ -1,114 +1,44 @@
 ---
-# clang-tidy configuration for K&R style C/C++ code
-# K&R (Kernighan & Ritchie) style characteristics:
-# - Opening brace on same line for control structures
-# - Opening brace on next line for function definitions
-# - 4 or 8 space indentation (using 4 here)
-# - Spaces around operators
-# - No space before opening parenthesis in function calls
+# clang-tidy configuration for STM32 embedded development
+# Focuses on bug detection and code quality without enforcing naming conventions
 
 Checks: >
   -*,
   bugprone-*,
   -bugprone-easily-swappable-parameters,
   -bugprone-implicit-widening-of-multiplication-result,
-  cert-*,
-  -cert-err58-cpp,
+  -bugprone-narrowing-conversions,
   clang-analyzer-*,
-  concurrency-*,
-  cppcoreguidelines-*,
-  -cppcoreguidelines-avoid-magic-numbers,
-  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
-  -cppcoreguidelines-pro-bounds-constant-array-index,
-  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
-  -cppcoreguidelines-pro-type-reinterpret-cast,
-  -cppcoreguidelines-pro-type-union-access,
-  -cppcoreguidelines-pro-type-vararg,
-  -cppcoreguidelines-avoid-non-const-global-variables,
-  -cppcoreguidelines-init-variables,
-  misc-*,
-  -misc-non-private-member-variables-in-classes,
-  modernize-*,
-  -modernize-use-trailing-return-type,
-  -modernize-avoid-c-arrays,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
   performance-*,
   portability-*,
-  readability-*,
-  -readability-magic-numbers,
-  -readability-identifier-length,
-  -readability-function-cognitive-complexity,
-  -readability-else-after-return,
-  -readability-braces-around-statements,
-  -readability-isolate-declaration
+  readability-braces-around-statements,
+  readability-const-return-type,
+  readability-container-size-empty,
+  readability-delete-null-pointer,
+  readability-deleted-default,
+  readability-inconsistent-declaration-parameter-name,
+  readability-misleading-indentation,
+  readability-misplaced-array-index,
+  readability-redundant-control-flow,
+  readability-redundant-declaration,
+  readability-redundant-function-ptr-dereference,
+  readability-redundant-smartptr-get,
+  readability-redundant-string-cstr,
+  readability-redundant-string-init,
+  readability-simplify-boolean-expr,
+  readability-simplify-subscript-expr,
+  readability-static-accessed-through-instance,
+  readability-static-definition-in-anonymous-namespace,
+  readability-string-compare,
+  readability-uniqueptr-delete-release
 
 CheckOptions:
-  # Naming conventions - K&R typically uses snake_case for functions and variables
-  - key: readability-identifier-naming.FunctionCase
-    value: lower_case
-  - key: readability-identifier-naming.VariableCase
-    value: lower_case
-  - key: readability-identifier-naming.ParameterCase
-    value: lower_case
-  - key: readability-identifier-naming.LocalVariableCase
-    value: lower_case
-  - key: readability-identifier-naming.GlobalVariableCase
-    value: lower_case
-  - key: readability-identifier-naming.StructCase
-    value: lower_case
-  - key: readability-identifier-naming.UnionCase
-    value: lower_case
-  - key: readability-identifier-naming.EnumCase
-    value: lower_case
-  - key: readability-identifier-naming.EnumConstantCase
-    value: UPPER_CASE
-  - key: readability-identifier-naming.MacroDefinitionCase
-    value: UPPER_CASE
-  - key: readability-identifier-naming.TypedefCase
-    value: lower_case
-  - key: readability-identifier-naming.TypedefSuffix
-    value: _t
-  
-  # Class naming (for C++ code)
-  - key: readability-identifier-naming.ClassCase
-    value: CamelCase
-  - key: readability-identifier-naming.MethodCase
-    value: lower_case
-  - key: readability-identifier-naming.PrivateMemberPrefix
-    value: m_
-  - key: readability-identifier-naming.ProtectedMemberPrefix
-    value: m_
-  
-  # Namespace naming
-  - key: readability-identifier-naming.NamespaceCase
-    value: lower_case
-  
-  # Line length - K&R traditionally uses 80 columns
-  - key: readability-function-size.LineThreshold
-    value: 80
-  - key: readability-function-size.StatementThreshold
-    value: 100
-  - key: readability-function-size.BranchThreshold
-    value: 20
-  - key: readability-function-size.ParameterThreshold
-    value: 8
-  
-  # Brace wrapping - K&R style
-  - key: readability-braces-around-statements.ShortStatementLines
-    value: 0
-  
-  # Function length
-  - key: readability-function-size.NestingThreshold
-    value: 6
-  
-  # Implicit conversions
+  # Allow implicit conversions common in embedded code
   - key: readability-implicit-bool-conversion.AllowPointerConditions
     value: true
   - key: readability-implicit-bool-conversion.AllowIntegerConditions
     value: true
-  
-  # Uppercase literal suffix
-  - key: readability-uppercase-literal-suffix.NewSuffixes
-    value: 'L;LL;LU;LLU'
   
   # Simplify boolean expressions
   - key: readability-simplify-boolean-expr.ChainedConditionalReturn
@@ -116,20 +46,11 @@ CheckOptions:
   - key: readability-simplify-boolean-expr.ChainedConditionalAssignment
     value: true
 
-# Header filter - check all project headers
-HeaderFilterRegex: '(.*/)?(src|include)/.*'
+# Only check headers in src/ and include/ directories
+HeaderFilterRegex: '^(src|include)/.*'
 
-# Treat warnings as errors (set to false for initial setup)
+# Don't treat warnings as errors
 WarningsAsErrors: ''
 
-# Format style - K&R style formatting
-# Note: clang-tidy uses clang-format for style checks
-# You should also create a .clang-format file for complete K&R formatting
-FormatStyle: none
-
-# Exclude system headers and external libraries
+# Don't check system headers
 SystemHeaders: false
-
-# Exclude patterns
-# Add paths to exclude from checks (e.g., third-party libraries)
-# Example: system/*, build/*, external/*

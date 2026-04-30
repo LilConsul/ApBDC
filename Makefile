@@ -1,18 +1,14 @@
 # Makefile for code formatting
-# Usage: make -f Makefile.format
-
-# Project directories
-SRC_DIR := src
-INCLUDE_DIR := include
-
-# Find all C/C++ source and header files
-SRC_FILES := $(shell find $(SRC_DIR) -type f \( -name "*.c" -o -name "*.cpp" -o -name "*.h" -o -name "*.hpp" \))
-HEADER_FILES := $(shell find $(INCLUDE_DIR) -type f \( -name "*.h" -o -name "*.hpp" \) 2>/dev/null)
-ALL_FILES := $(SRC_FILES) $(HEADER_FILES)
+# Usage: make format
+# Only processes files in src/ and include/ directories
+# System files are NEVER touched
 
 .PHONY: format
 
 format:
-	@echo "Formatting source files..."
-	@clang-format -i $(ALL_FILES)
-	@echo "Done! Formatted $(words $(ALL_FILES)) files."
+	@echo "Formatting code (K&R style) and sorting includes..."
+	@find src include -type f \( -name "*.c" -o -name "*.cpp" -o -name "*.h" -o -name "*.hpp" \) 2>/dev/null | while read file; do \
+		echo "  $$file"; \
+		clang-format -i "$$file"; \
+	done
+	@echo "Done! Code formatted."

@@ -1,0 +1,3 @@
+# Exclude system libraries and third-party code from formatting
+system/*
+.settings/*
