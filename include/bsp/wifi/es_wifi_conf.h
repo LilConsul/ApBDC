@@ -1,0 +1,79 @@
+#ifndef ES_WIFI_CONF_H
+#define ES_WIFI_CONF_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include "stm32f4xx_hal.h"
+
+// SPI Instance
+#define WIFI_SPI_INSTANCE SPI3
+#define WIFI_SPI_CLK_ENABLE() __HAL_RCC_SPI3_CLK_ENABLE()
+#define WIFI_SPI_CLK_DISABLE() __HAL_RCC_SPI3_CLK_DISABLE()
+
+// SPI Pins - GPIOB
+#define WIFI_SPI_SCK_PIN GPIO_PIN_3
+#define WIFI_SPI_SCK_GPIO_PORT GPIOB
+#define WIFI_SPI_SCK_GPIO_CLK_ENABLE() __HAL_RCC_GPIOB_CLK_ENABLE()
+#define WIFI_SPI_SCK_AF GPIO_AF6_SPI3
+
+#define WIFI_SPI_MISO_PIN GPIO_PIN_4
+#define WIFI_SPI_MISO_GPIO_PORT GPIOB
+#define WIFI_SPI_MISO_GPIO_CLK_ENABLE() __HAL_RCC_GPIOB_CLK_ENABLE()
+#define WIFI_SPI_MISO_AF GPIO_AF6_SPI3
+
+#define WIFI_SPI_MOSI_PIN GPIO_PIN_5
+#define WIFI_SPI_MOSI_GPIO_PORT GPIOB
+#define WIFI_SPI_MOSI_GPIO_CLK_ENABLE() __HAL_RCC_GPIOB_CLK_ENABLE()
+#define WIFI_SPI_MOSI_AF GPIO_AF6_SPI3
+
+// Control Pins - GPIOE
+#define WIFI_CS_PIN GPIO_PIN_0
+#define WIFI_CS_GPIO_PORT GPIOE
+#define WIFI_CS_GPIO_CLK_ENABLE() __HAL_RCC_GPIOE_CLK_ENABLE()
+
+#define WIFI_RESET_PIN GPIO_PIN_8
+#define WIFI_RESET_GPIO_PORT GPIOE
+#define WIFI_RESET_GPIO_CLK_ENABLE() __HAL_RCC_GPIOE_CLK_ENABLE()
+
+#define WIFI_DATAREADY_PIN GPIO_PIN_1
+#define WIFI_DATAREADY_GPIO_PORT GPIOE
+#define WIFI_DATAREADY_GPIO_CLK_ENABLE() __HAL_RCC_GPIOE_CLK_ENABLE()
+
+// Wakeup Pin - GPIOB
+#define WIFI_WAKEUP_PIN GPIO_PIN_15
+#define WIFI_WAKEUP_GPIO_PORT GPIOB
+#define WIFI_WAKEUP_GPIO_CLK_ENABLE() __HAL_RCC_GPIOB_CLK_ENABLE()
+
+// SPI Settings
+#define WIFI_SPI_BAUDRATE 10000000 // 10 MHz (max 20 MHz for ISM43362)
+
+// Buffer sizes
+#define ES_WIFI_MAX_SSID_NAME_SIZE 32
+#define ES_WIFI_MAX_PSWD_NAME_SIZE 32
+#define ES_WIFI_PRODUCT_ID_SIZE 32
+#define ES_WIFI_PRODUCT_NAME_SIZE 32
+#define ES_WIFI_FW_REV_SIZE 16
+#define ES_WIFI_API_REV_SIZE 16
+#define ES_WIFI_STACK_REV_SIZE 16
+#define ES_WIFI_RTOS_REV_SIZE 16
+
+// WiFi module limits
+#define ES_WIFI_MAX_DETECTED_AP 10 // Maximum number of APs to detect
+#define ES_WIFI_DATA_SIZE 2000     // Data buffer size for commands
+
+// Feature enables
+#define ES_WIFI_USE_PING 1           // Enable ping functionality
+#define ES_WIFI_USE_AWS 0            // Disable AWS IoT
+#define ES_WIFI_USE_FIRMWAREUPDATE 0 // Disable firmware update
+#define ES_WIFI_USE_WPS 0            // Disable WPS
+
+// Timeouts
+#define ES_WIFI_TIMEOUT 30000 // 30 seconds
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* ES_WIFI_CONF_H */

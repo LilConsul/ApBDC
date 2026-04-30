@@ -9,7 +9,7 @@
  * @param error_message: String describing the error
  * @note This function does not return - enters infinite loop
  */
-void Error_Handler(const char* error_message);
+void Error_Handler(const char *error_message);
 
 /**
  * @brief Error handler with file and line information
@@ -18,7 +18,8 @@ void Error_Handler(const char* error_message);
  * @param line: Line number where error occurred
  * @note This function does not return - enters infinite loop
  */
-void Error_Handler_Debug(const char* error_message, const char* file, uint32_t line);
+void Error_Handler_Debug(const char *error_message, const char *file,
+                         uint32_t line);
 
 /**
  * @brief Initialize error handler (LED GPIO configuration)
@@ -28,11 +29,9 @@ void Error_Handler_Init();
 
 // Convenience macro for debug builds
 #ifdef DEBUG
-    #define ERROR_HANDLER(msg) Error_Handler_Debug(msg, __FILE__, __LINE__)
+#define ERROR_HANDLER(msg) Error_Handler_Debug(msg, __FILE__, __LINE__)
 #else
-    #define ERROR_HANDLER(msg) Error_Handler(msg)
+#define ERROR_HANDLER(msg) Error_Handler(msg)
 #endif
 
 #endif /* ERROR_HANDLER_HPP */
-
-// Made with Bob

@@ -20,8 +20,8 @@
  */
 
 /* Includes ------------------------------------------------------------------*/
-#include "stm32f4xx_hal.h"
 #include "es_wifi_conf.h"
+#include "stm32f4xx_hal.h"
 
 /** @addtogroup STM32F4xx_HAL_Driver
  * @{
@@ -66,10 +66,10 @@ void HAL_MspDeInit(void) {
  * @param  hspi: SPI handle pointer
  * @retval None
  */
-void HAL_SPI_MspInit(SPI_HandleTypeDef* hspi) {
+void HAL_SPI_MspInit(SPI_HandleTypeDef *hspi) {
     GPIO_InitTypeDef GPIO_InitStruct = {0};
-    
-    if(hspi->Instance == SPI3) {
+
+    if (hspi->Instance == SPI3) {
         /* Enable peripheral clocks */
         WIFI_SPI_CLK_ENABLE();
         WIFI_SPI_SCK_GPIO_CLK_ENABLE();
@@ -79,7 +79,7 @@ void HAL_SPI_MspInit(SPI_HandleTypeDef* hspi) {
         WIFI_RESET_GPIO_CLK_ENABLE();
         WIFI_WAKEUP_GPIO_CLK_ENABLE();
         WIFI_DATAREADY_GPIO_CLK_ENABLE();
-        
+
         /* Configure SPI SCK pin (PB3) */
         GPIO_InitStruct.Pin = WIFI_SPI_SCK_PIN;
         GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
@@ -87,17 +87,17 @@ void HAL_SPI_MspInit(SPI_HandleTypeDef* hspi) {
         GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
         GPIO_InitStruct.Alternate = WIFI_SPI_SCK_AF;
         HAL_GPIO_Init(WIFI_SPI_SCK_GPIO_PORT, &GPIO_InitStruct);
-        
+
         /* Configure SPI MISO pin (PB4) */
         GPIO_InitStruct.Pin = WIFI_SPI_MISO_PIN;
         GPIO_InitStruct.Alternate = WIFI_SPI_MISO_AF;
         HAL_GPIO_Init(WIFI_SPI_MISO_GPIO_PORT, &GPIO_InitStruct);
-        
+
         /* Configure SPI MOSI pin (PB5) */
         GPIO_InitStruct.Pin = WIFI_SPI_MOSI_PIN;
         GPIO_InitStruct.Alternate = WIFI_SPI_MOSI_AF;
         HAL_GPIO_Init(WIFI_SPI_MOSI_GPIO_PORT, &GPIO_InitStruct);
-        
+
         /* Configure CS pin (PE0) - Output, initially high */
         GPIO_InitStruct.Pin = WIFI_CS_PIN;
         GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -106,17 +106,18 @@ void HAL_SPI_MspInit(SPI_HandleTypeDef* hspi) {
         GPIO_InitStruct.Alternate = 0;
         HAL_GPIO_Init(WIFI_CS_GPIO_PORT, &GPIO_InitStruct);
         HAL_GPIO_WritePin(WIFI_CS_GPIO_PORT, WIFI_CS_PIN, GPIO_PIN_SET);
-        
+
         /* Configure RESET pin (PE8) - Output, initially high (not in reset) */
         GPIO_InitStruct.Pin = WIFI_RESET_PIN;
         HAL_GPIO_Init(WIFI_RESET_GPIO_PORT, &GPIO_InitStruct);
         HAL_GPIO_WritePin(WIFI_RESET_GPIO_PORT, WIFI_RESET_PIN, GPIO_PIN_SET);
-        
+
         /* Configure WAKEUP pin (PB15) - Output, initially low */
         GPIO_InitStruct.Pin = WIFI_WAKEUP_PIN;
         HAL_GPIO_Init(WIFI_WAKEUP_GPIO_PORT, &GPIO_InitStruct);
-        HAL_GPIO_WritePin(WIFI_WAKEUP_GPIO_PORT, WIFI_WAKEUP_PIN, GPIO_PIN_RESET);
-        
+        HAL_GPIO_WritePin(WIFI_WAKEUP_GPIO_PORT, WIFI_WAKEUP_PIN,
+                          GPIO_PIN_RESET);
+
         /* Configure DATA_READY pin (PE1) - Input */
         GPIO_InitStruct.Pin = WIFI_DATAREADY_PIN;
         GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
@@ -130,11 +131,11 @@ void HAL_SPI_MspInit(SPI_HandleTypeDef* hspi) {
  * @param  hspi: SPI handle pointer
  * @retval None
  */
-void HAL_SPI_MspDeInit(SPI_HandleTypeDef* hspi) {
-    if(hspi->Instance == SPI3) {
+void HAL_SPI_MspDeInit(SPI_HandleTypeDef *hspi) {
+    if (hspi->Instance == SPI3) {
         /* Disable SPI clock */
         WIFI_SPI_CLK_DISABLE();
-        
+
         /* DeInitialize GPIO pins */
         HAL_GPIO_DeInit(WIFI_SPI_SCK_GPIO_PORT, WIFI_SPI_SCK_PIN);
         HAL_GPIO_DeInit(WIFI_SPI_MISO_GPIO_PORT, WIFI_SPI_MISO_PIN);
