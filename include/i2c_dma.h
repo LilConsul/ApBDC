@@ -26,17 +26,17 @@ extern "C" {
 
 /* Exported constants --------------------------------------------------------*/
 #ifndef I2C_DMA_SPEED
-#define I2C_DMA_SPEED                100000  // 100 kHz standard mode
+#define I2C_DMA_SPEED 100000 // 100 kHz standard mode
 #endif
 
-#define I2C_DMA_TIMEOUT_MAX          0x3000  // Timeout for blocking operations
+#define I2C_DMA_TIMEOUT_MAX 0x3000 // Timeout for blocking operations
 
 /* Exported types ------------------------------------------------------------*/
 typedef enum {
-    I2C_DMA_OK       = 0x00U,
-    I2C_DMA_ERROR    = 0x01U,
-    I2C_DMA_BUSY     = 0x02U,
-    I2C_DMA_TIMEOUT  = 0x03U
+    I2C_DMA_OK = 0x00U,
+    I2C_DMA_ERROR = 0x01U,
+    I2C_DMA_BUSY = 0x02U,
+    I2C_DMA_TIMEOUT = 0x03U
 } I2C_DMA_StatusTypeDef;
 
 /* Exported variables --------------------------------------------------------*/
@@ -67,7 +67,8 @@ void I2C_DMA_DeInit(void);
  * @param  Value: Byte value to write
  * @retval I2C_DMA_StatusTypeDef: Operation status
  */
-I2C_DMA_StatusTypeDef I2C_DMA_WriteRegister(uint8_t DevAddr, uint8_t Reg, uint8_t Value);
+I2C_DMA_StatusTypeDef I2C_DMA_WriteRegister(uint8_t DevAddr, uint8_t Reg,
+                                            uint8_t Value);
 
 /**
  * @brief  Read a single byte from I2C device register using DMA
@@ -76,7 +77,8 @@ I2C_DMA_StatusTypeDef I2C_DMA_WriteRegister(uint8_t DevAddr, uint8_t Reg, uint8_
  * @param  pValue: Pointer to store the read value
  * @retval I2C_DMA_StatusTypeDef: Operation status
  */
-I2C_DMA_StatusTypeDef I2C_DMA_ReadRegister(uint8_t DevAddr, uint8_t Reg, uint8_t *pValue);
+I2C_DMA_StatusTypeDef I2C_DMA_ReadRegister(uint8_t DevAddr, uint8_t Reg,
+                                           uint8_t *pValue);
 
 /**
  * @brief  Read multiple bytes from I2C device register using DMA
@@ -86,8 +88,8 @@ I2C_DMA_StatusTypeDef I2C_DMA_ReadRegister(uint8_t DevAddr, uint8_t Reg, uint8_t
  * @param  Length: Number of bytes to read
  * @retval I2C_DMA_StatusTypeDef: Operation status
  */
-I2C_DMA_StatusTypeDef I2C_DMA_ReadBuffer(uint8_t DevAddr, uint8_t Reg, 
-                                          uint8_t *pBuffer, uint16_t Length);
+I2C_DMA_StatusTypeDef I2C_DMA_ReadBuffer(uint8_t DevAddr, uint8_t Reg,
+                                         uint8_t *pBuffer, uint16_t Length);
 
 /**
  * @brief  Check if I2C DMA transfer is complete

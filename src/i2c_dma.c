@@ -16,6 +16,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "i2c_dma.h"
 #include "diag/trace.h"
+#include "magnetometer_stream.h"
 
 /* Private variables ---------------------------------------------------------*/
 I2C_HandleTypeDef I2cHandle;
@@ -49,7 +50,7 @@ void I2C_DMA_Init(void) {
         I2cHandle.Init.OwnAddress2 = 0;
         I2cHandle.Init.GeneralCallMode = I2C_GENERALCALL_DISABLED;
         I2cHandle.Init.NoStretchMode = I2C_NOSTRETCH_DISABLED;
-        
+
         I2C_DMA_MspInit(&I2cHandle);
         HAL_I2C_Init(&I2cHandle);
     }
@@ -70,27 +71,30 @@ void I2C_DMA_DeInit(void) {
  * @param  Value: Byte value to write
  * @retval I2C_DMA_StatusTypeDef: Operation status
  */
-I2C_DMA_StatusTypeDef I2C_DMA_WriteRegister(uint8_t DevAddr, uint8_t Reg, uint8_t Value) {
+I2C_DMA_StatusTypeDef I2C_DMA_WriteRegister(uint8_t DevAddr, uint8_t Reg,
+                                            uint8_t Value) {
     HAL_StatusTypeDef status = HAL_OK;
     i2c_write_single_buf = Value;
     i2c_tx_complete = 0;
 
-    status = HAL_I2C_Mem_Write_DMA(&I2cHandle, DevAddr, (uint16_t)Reg,
-                                    I2C_MEMADD_SIZE_8BIT, &i2c_write_single_buf, 1);
-    
+    status =
+        HAL_I2C_Mem_Write_DMA(&I2cHandle, DevAddr, (uint16_t)Reg,
+                              I2C_MEMADD_SIZE_8BIT, &i2c_write_single_buf, 1);
+
     if (status != HAL_OK) {
         I2C_DMA_ErrorHandler();
         return I2C_DMA_ERROR;
     }
 
     uint32_t timeout = I2C_DMA_TIMEOUT_MAX;
-    while (!i2c_tx_complete && timeout--) {}
-    
+    while (!i2c_tx_complete && timeout--) {
+    }
+
     if (!i2c_tx_complete) {
         I2C_DMA_ErrorHandler();
         return I2C_DMA_TIMEOUT;
     }
-    
+
     return I2C_DMA_OK;
 }
 
@@ -101,22 +105,25 @@ I2C_DMA_StatusTypeDef I2C_DMA_WriteRegister(uint8_t DevAddr, uint8_t Reg, uint8_
  * @param  pValue: Pointer to store the read value
  * @retval I2C_DMA_StatusTypeDef: Operation status
  */
-I2C_DMA_StatusTypeDef I2C_DMA_ReadRegister(uint8_t DevAddr, uint8_t Reg, uint8_t *pValue) {
+I2C_DMA_StatusTypeDef I2C_DMA_ReadRegister(uint8_t DevAddr, uint8_t Reg,
+                                           uint8_t *pValue) {
     HAL_StatusTypeDef status = HAL_OK;
     i2c_read_single_buf = 0;
     i2c_rx_complete = 0;
 
-    status = HAL_I2C_Mem_Read_DMA(&I2cHandle, DevAddr, Reg, I2C_MEMADD_SIZE_8BIT,
-                                   &i2c_read_single_buf, 1);
-    
+    status =
+        HAL_I2C_Mem_Read_DMA(&I2cHandle, DevAddr, Reg, I2C_MEMADD_SIZE_8BIT,
+                             &i2c_read_single_buf, 1);
+
     if (status != HAL_OK) {
         I2C_DMA_ErrorHandler();
         return I2C_DMA_ERROR;
     }
 
     uint32_t timeout = I2C_DMA_TIMEOUT_MAX;
-    while (!i2c_rx_complete && timeout--) {}
-    
+    while (!i2c_rx_complete && timeout--) {
+    }
+
     if (!i2c_rx_complete) {
         I2C_DMA_ErrorHandler();
         return I2C_DMA_TIMEOUT;
@@ -134,27 +141,28 @@ I2C_DMA_StatusTypeDef I2C_DMA_ReadRegister(uint8_t DevAddr, uint8_t Reg, uint8_t
  * @param  Length: Number of bytes to read
  * @retval I2C_DMA_StatusTypeDef: Operation status
  */
-I2C_DMA_StatusTypeDef I2C_DMA_ReadBuffer(uint8_t DevAddr, uint8_t Reg, 
-                                          uint8_t *pBuffer, uint16_t Length) {
+I2C_DMA_StatusTypeDef I2C_DMA_ReadBuffer(uint8_t DevAddr, uint8_t Reg,
+                                         uint8_t *pBuffer, uint16_t Length) {
     HAL_StatusTypeDef status = HAL_OK;
     i2c_rx_complete = 0;
-    
+
     status = HAL_I2C_Mem_Read_DMA(&I2cHandle, DevAddr, (uint16_t)Reg,
-                                   I2C_MEMADD_SIZE_8BIT, pBuffer, Length);
-    
+                                  I2C_MEMADD_SIZE_8BIT, pBuffer, Length);
+
     if (status != HAL_OK) {
         I2C_DMA_ErrorHandler();
         return I2C_DMA_ERROR;
     }
-    
+
     uint32_t timeout = I2C_DMA_TIMEOUT_MAX * 10;
-    while (!i2c_rx_complete && timeout--) {}
-    
+    while (!i2c_rx_complete && timeout--) {
+    }
+
     if (!i2c_rx_complete) {
         I2C_DMA_ErrorHandler();
         return I2C_DMA_TIMEOUT;
     }
-    
+
     return I2C_DMA_OK;
 }
 
@@ -268,7 +276,7 @@ static void I2C_DMA_MspInit(I2C_HandleTypeDef *hi2c) {
         HAL_NVIC_EnableIRQ(DMA1_Stream7_IRQn);
         HAL_NVIC_SetPriority(DMA1_Stream2_IRQn, 0x0E, 0x00);
         HAL_NVIC_EnableIRQ(DMA1_Stream2_IRQn);
-        
+
         /* Configure NVIC for I2C interrupts */
         HAL_NVIC_SetPriority(I2C2_EV_IRQn, 0x0F, 0x00);
         HAL_NVIC_EnableIRQ(I2C2_EV_IRQn);
@@ -304,6 +312,11 @@ void HAL_I2C_MemTxCpltCallback(I2C_HandleTypeDef *hi2c) {
  */
 void HAL_I2C_MemRxCpltCallback(I2C_HandleTypeDef *hi2c) {
     I2C_DMA_MemRxCpltCallback(hi2c);
+
+    /* Call magnetometer callback if this is I2C2 */
+    if (hi2c->Instance == I2C2) {
+        Magnetometer_DMACompleteCallback();
+    }
 }
 
 /**
@@ -313,4 +326,9 @@ void HAL_I2C_MemRxCpltCallback(I2C_HandleTypeDef *hi2c) {
  */
 void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c) {
     I2C_DMA_ErrorCallback(hi2c);
+
+    /* Call magnetometer error callback if this is I2C2 */
+    if (hi2c->Instance == I2C2) {
+        Magnetometer_ErrorCallback();
+    }
 }

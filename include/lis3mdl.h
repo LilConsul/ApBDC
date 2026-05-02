@@ -31,16 +31,16 @@ extern "C" {
 /* Exported constants --------------------------------------------------------*/
 
 /* LIS3MDL I2C Address (SA1 pin → GND = 0x1C, SA1 pin → VCC = 0x1E) */
-#define LIS3MDL_I2C_ADDRESS_LOW      0x1C  // SA1 = GND
-#define LIS3MDL_I2C_ADDRESS_HIGH     0x1E  // SA1 = VCC
+#define LIS3MDL_I2C_ADDRESS_LOW 0x1C  // SA1 = GND
+#define LIS3MDL_I2C_ADDRESS_HIGH 0x1E // SA1 = VCC
 
 /* Default I2C address (assuming SA1 = GND) */
 #ifndef LIS3MDL_I2C_ADDRESS
-#define LIS3MDL_I2C_ADDRESS          LIS3MDL_I2C_ADDRESS_LOW
+#define LIS3MDL_I2C_ADDRESS LIS3MDL_I2C_ADDRESS_LOW
 #endif
 
 /* Device ID */
-#define LIS3MDL_WHO_AM_I_VALUE       0x3D
+#define LIS3MDL_WHO_AM_I_VALUE 0x3D
 
 /* Exported types ------------------------------------------------------------*/
 
@@ -48,9 +48,9 @@ extern "C" {
  * @brief  LIS3MDL status enumeration
  */
 typedef enum {
-    LIS3MDL_OK       = 0x00U,
-    LIS3MDL_ERROR    = 0x01U,
-    LIS3MDL_TIMEOUT  = 0x02U,
+    LIS3MDL_OK = 0x00U,
+    LIS3MDL_ERROR = 0x01U,
+    LIS3MDL_TIMEOUT = 0x02U,
     LIS3MDL_NOT_FOUND = 0x03U
 } LIS3MDL_StatusTypeDef;
 
@@ -58,61 +58,61 @@ typedef enum {
  * @brief  LIS3MDL full-scale range
  */
 typedef enum {
-    LIS3MDL_FS_4_GAUSS   = 0x00,  // ±4 gauss  (6842 LSB/gauss)
-    LIS3MDL_FS_8_GAUSS   = 0x01,  // ±8 gauss  (3421 LSB/gauss)
-    LIS3MDL_FS_12_GAUSS  = 0x02,  // ±12 gauss (2281 LSB/gauss)
-    LIS3MDL_FS_16_GAUSS  = 0x03   // ±16 gauss (1711 LSB/gauss)
+    LIS3MDL_FS_4_GAUSS = 0x00,  // ±4 gauss  (6842 LSB/gauss)
+    LIS3MDL_FS_8_GAUSS = 0x01,  // ±8 gauss  (3421 LSB/gauss)
+    LIS3MDL_FS_12_GAUSS = 0x02, // ±12 gauss (2281 LSB/gauss)
+    LIS3MDL_FS_16_GAUSS = 0x03  // ±16 gauss (1711 LSB/gauss)
 } LIS3MDL_FullScaleTypeDef;
 
 /**
  * @brief  LIS3MDL output data rate
  */
 typedef enum {
-    LIS3MDL_ODR_0_625_HZ = 0x00,  // 0.625 Hz
-    LIS3MDL_ODR_1_25_HZ  = 0x01,  // 1.25 Hz
-    LIS3MDL_ODR_2_5_HZ   = 0x02,  // 2.5 Hz
-    LIS3MDL_ODR_5_HZ     = 0x03,  // 5 Hz
-    LIS3MDL_ODR_10_HZ    = 0x04,  // 10 Hz
-    LIS3MDL_ODR_20_HZ    = 0x05,  // 20 Hz
-    LIS3MDL_ODR_40_HZ    = 0x06,  // 40 Hz
-    LIS3MDL_ODR_80_HZ    = 0x07   // 80 Hz
+    LIS3MDL_ODR_0_625_HZ = 0x00, // 0.625 Hz
+    LIS3MDL_ODR_1_25_HZ = 0x01,  // 1.25 Hz
+    LIS3MDL_ODR_2_5_HZ = 0x02,   // 2.5 Hz
+    LIS3MDL_ODR_5_HZ = 0x03,     // 5 Hz
+    LIS3MDL_ODR_10_HZ = 0x04,    // 10 Hz
+    LIS3MDL_ODR_20_HZ = 0x05,    // 20 Hz
+    LIS3MDL_ODR_40_HZ = 0x06,    // 40 Hz
+    LIS3MDL_ODR_80_HZ = 0x07     // 80 Hz
 } LIS3MDL_ODRTypeDef;
 
 /**
  * @brief  LIS3MDL operating mode
  */
 typedef enum {
-    LIS3MDL_MODE_CONTINUOUS  = 0x00,  // Continuous conversion
-    LIS3MDL_MODE_SINGLE      = 0x01,  // Single conversion
-    LIS3MDL_MODE_POWER_DOWN  = 0x02   // Power-down mode
+    LIS3MDL_MODE_CONTINUOUS = 0x00, // Continuous conversion
+    LIS3MDL_MODE_SINGLE = 0x01,     // Single conversion
+    LIS3MDL_MODE_POWER_DOWN = 0x02  // Power-down mode
 } LIS3MDL_ModeTypeDef;
 
 /**
  * @brief  LIS3MDL configuration structure
  */
 typedef struct {
-    LIS3MDL_FullScaleTypeDef full_scale;  // Full-scale range
-    LIS3MDL_ODRTypeDef       odr;         // Output data rate
-    LIS3MDL_ModeTypeDef      mode;        // Operating mode
-    uint8_t                  enable_bdu;  // Block data update (1=enabled)
+    LIS3MDL_FullScaleTypeDef full_scale; // Full-scale range
+    LIS3MDL_ODRTypeDef odr;              // Output data rate
+    LIS3MDL_ModeTypeDef mode;            // Operating mode
+    uint8_t enable_bdu;                  // Block data update (1=enabled)
 } LIS3MDL_ConfigTypeDef;
 
 /**
  * @brief  LIS3MDL magnetometer data structure (in gauss)
  */
 typedef struct {
-    float x;  // X-axis magnetic field (gauss)
-    float y;  // Y-axis magnetic field (gauss)
-    float z;  // Z-axis magnetic field (gauss)
+    float x; // X-axis magnetic field (gauss)
+    float y; // Y-axis magnetic field (gauss)
+    float z; // Z-axis magnetic field (gauss)
 } LIS3MDL_MagDataTypeDef;
 
 /**
  * @brief  LIS3MDL raw data structure (16-bit signed)
  */
 typedef struct {
-    int16_t x;  // X-axis raw value
-    int16_t y;  // Y-axis raw value
-    int16_t z;  // Z-axis raw value
+    int16_t x; // X-axis raw value
+    int16_t y; // Y-axis raw value
+    int16_t z; // Z-axis raw value
 } LIS3MDL_RawDataTypeDef;
 
 /* Exported functions --------------------------------------------------------*/
@@ -129,7 +129,8 @@ LIS3MDL_StatusTypeDef LIS3MDL_Init(void);
  * @param  config: Pointer to configuration structure
  * @retval LIS3MDL_StatusTypeDef: Initialization status
  */
-LIS3MDL_StatusTypeDef LIS3MDL_InitWithConfig(const LIS3MDL_ConfigTypeDef *config);
+LIS3MDL_StatusTypeDef
+LIS3MDL_InitWithConfig(const LIS3MDL_ConfigTypeDef *config);
 
 /**
  * @brief  De-initialize LIS3MDL magnetometer (power down)

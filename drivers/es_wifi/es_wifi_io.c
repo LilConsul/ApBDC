@@ -31,9 +31,9 @@
 SPI_HandleTypeDef hspi;
 volatile uint8_t wifi_data_ready_flag = 0;  /* Flag set by interrupt */
 
-/* Interrupt communication flags for main loop */
-volatile uint8_t http_process_flag = 0;      /* Set when HTTP request needs processing */
-volatile uint8_t server_maintenance_flag = 0; /* Set when server maintenance needed */
+/* External interrupt communication flags from main.cpp */
+extern volatile uint8_t http_process_flag;
+extern volatile uint8_t server_maintenance_flag;
 volatile uint32_t maintenance_timer = 0;      /* Timer for periodic maintenance */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -183,10 +183,10 @@ int8_t SPI_WIFI_Init(void)
   HAL_GPIO_WritePin(GPIOH, GPIO_PIN_1, GPIO_PIN_SET);
   
   #ifdef TRACE
-  trace_printf("  [SPI_WIFI_Init] Waiting 500ms for module boot...\n");
+  trace_printf("  [SPI_WIFI_Init] Waiting 100ms for module boot...\n");
   #endif
   
-  HAL_Delay(500);
+  HAL_Delay(100);
   
   #ifdef TRACE
   trace_printf("  [SPI_WIFI_Init] Reset complete, enabling NSS...\n");

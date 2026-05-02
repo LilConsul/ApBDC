@@ -118,13 +118,14 @@ void HAL_SPI_MspInit(SPI_HandleTypeDef *hspi) {
         HAL_GPIO_WritePin(WIFI_WAKEUP_GPIO_PORT, WIFI_WAKEUP_PIN,
                           GPIO_PIN_RESET);
 
-        /* Configure DATA_READY pin (PG12) - Input with interrupt on rising edge */
+        /* Configure DATA_READY pin (PG12) - Input with interrupt on rising edge
+         */
         GPIO_InitStruct.Pin = GPIO_PIN_12;
         GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
         GPIO_InitStruct.Pull = GPIO_NOPULL;
         GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
         HAL_GPIO_Init(GPIOG, &GPIO_InitStruct);
-        
+
         /* Enable and set EXTI line 12 Interrupt to the lowest priority */
         HAL_NVIC_SetPriority(EXTI15_10_IRQn, 2, 0);
         HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
@@ -149,6 +150,37 @@ void HAL_SPI_MspDeInit(SPI_HandleTypeDef *hspi) {
         HAL_GPIO_DeInit(WIFI_RESET_GPIO_PORT, WIFI_RESET_PIN);
         HAL_GPIO_DeInit(WIFI_WAKEUP_GPIO_PORT, WIFI_WAKEUP_PIN);
         HAL_GPIO_DeInit(WIFI_DATAREADY_GPIO_PORT, WIFI_DATAREADY_PIN);
+    }
+}
+
+/**
+ * @brief  Initializes the TIM Base MSP.
+ * @param  htim_base: TIM Base handle pointer
+ * @retval None
+ */
+void HAL_TIM_Base_MspInit(TIM_HandleTypeDef *htim_base) {
+    if (htim_base->Instance == TIM2) {
+        /* Enable TIM2 clock */
+        __HAL_RCC_TIM2_CLK_ENABLE();
+
+        /* Configure TIM2 interrupt with lower priority than I2C DMA */
+        HAL_NVIC_SetPriority(TIM2_IRQn, 5, 0);
+        HAL_NVIC_EnableIRQ(TIM2_IRQn);
+    }
+}
+
+/**
+ * @brief  DeInitializes the TIM Base MSP.
+ * @param  htim_base: TIM Base handle pointer
+ * @retval None
+ */
+void HAL_TIM_Base_MspDeInit(TIM_HandleTypeDef *htim_base) {
+    if (htim_base->Instance == TIM2) {
+        /* Disable TIM2 clock */
+        __HAL_RCC_TIM2_CLK_DISABLE();
+
+        /* Disable TIM2 interrupt */
+        HAL_NVIC_DisableIRQ(TIM2_IRQn);
     }
 }
 

@@ -1,7 +1,9 @@
 #include "diag/trace.h"
 #include "es_wifi_io.h"
+#include "magnetometer_stream.h"
 #include "stm32f413h_discovery.h"
 #include "stm32f4xx_hal.h"
+#include "web_content.h"
 #include "wifi.h"
 #include <stdio.h>
 #include <string.h>
@@ -13,25 +15,6 @@
 #pragma GCC diagnostic ignored "-Wmissing-declarations"
 #pragma GCC diagnostic ignored "-Wreturn-type"
 
-/* Private defines -----------------------------------------------------------*/
-#define HTTP_RESPONSE_HEADER                                                   \
-    "HTTP/1.1 200 OK\r\n"                                                      \
-    "Content-Type: text/html\r\n"                                              \
-    "Connection: close\r\n"                                                    \
-    "\r\n"
-
-#define HTML_PAGE                                                              \
-    "<!DOCTYPE html>"                                                          \
-    "<html><head><title>STM32F413H WiFi Server</title>"                        \
-    "<style>body{font-family:Arial;margin:40px;background:#f0f0f0;}"           \
-    "h1{color:#0066cc;}p{font-size:18px;}</style></head>"                      \
-    "<body><h1>STM32F413H Discovery WiFi Server</h1>"                          \
-    "<p>WiFi module is working!</p>"                                           \
-    "<p>Board: STM32F413H-Discovery</p>"                                       \
-    "<p>WiFi Module: ISM43362</p>"                                             \
-    "<p>Status: Connected and Running</p>"                                     \
-    "</body></html>"
-
 /* Server state machine states */
 typedef enum {
     SERVER_STATE_IDLE = 0,
@@ -40,10 +23,10 @@ typedef enum {
 
 /* Connection tracking */
 typedef struct {
-    uint8_t is_active;           /* Connection is active */
-    uint8_t needs_close;         /* Connection should be closed */
-    uint32_t last_activity_ms;   /* Last activity timestamp */
-    uint32_t timeout_ms;         /* Timeout for this connection */
+    uint8_t is_active;         /* Connection is active */
+    uint8_t needs_close;       /* Connection should be closed */
+    uint32_t last_activity_ms; /* Last activity timestamp */
+    uint32_t timeout_ms;       /* Timeout for this connection */
 } ConnectionState_t;
 
 /* Private variables ---------------------------------------------------------*/
@@ -51,8 +34,12 @@ static uint8_t http_buffer[HTTP_BUFFER_SIZE];
 static uint8_t ip_addr[4];
 static ServerState_t server_state = SERVER_STATE_IDLE;
 static uint32_t request_count = 0;
-static uint8_t restart_step = 0;
-static ConnectionState_t connection_state = {0, 0, 0, 5000}; /* 5 second default timeout */
+static ConnectionState_t connection_state = {
+    0, 0, 0, 5000}; /* 5 second default timeout */
+
+/* Interrupt flags for main loop */
+volatile uint8_t http_process_flag = 0;
+volatile uint8_t server_maintenance_flag = 0;
 
 /* Private function prototypes -----------------------------------------------*/
 static void SystemClock_Config(void);
@@ -75,7 +62,21 @@ int main(int argc, char *argv[]) {
     trace_printf("========================================\n");
     trace_printf("Initializing...\n\n");
 
+    /* Initialize magnetometer streaming module */
+    trace_printf("Step 1: Initializing magnetometer...\n");
+    if (Magnetometer_Init() != 0) {
+        trace_printf("ERROR: Magnetometer initialization failed!\n");
+        Error_Handler("Magnetometer Init Failed");
+    }
+    trace_printf("  -> Magnetometer initialized\n\n");
+
+    /* Initialize and connect WiFi */
     WiFi_InitAndConnect();
+
+    /* Start magnetometer sampling */
+    trace_printf("\nStep 5: Starting magnetometer sampling...\n");
+    Magnetometer_StartSampling();
+    trace_printf("  -> Magnetometer sampling started at 20Hz\n");
 
     trace_printf("\n========================================\n");
     trace_printf("  Server Ready!\n");
@@ -83,6 +84,7 @@ int main(int argc, char *argv[]) {
     trace_printf("Access the server at: http://%d.%d.%d.%d\n", ip_addr[0],
                  ip_addr[1], ip_addr[2], ip_addr[3]);
     trace_printf("Waiting for HTTP requests...\n");
+    trace_printf("Magnetometer data streaming at /api/stream\n");
     trace_printf("CPU will enter low-power mode (WFI) between requests\n\n");
 
     BSP_LED_On(LED_GREEN);
@@ -107,7 +109,7 @@ int main(int argc, char *argv[]) {
 static void WiFi_InitAndConnect(void) {
     WIFI_Status_t status;
 
-    trace_printf("Step 1: Initializing WiFi module...\n");
+    trace_printf("Step 2: Initializing WiFi module...\n");
     status = WIFI_Init();
     if (status != WIFI_STATUS_OK) {
         trace_printf("ERROR: WiFi initialization failed! (Status: %d)\n",
@@ -116,7 +118,7 @@ static void WiFi_InitAndConnect(void) {
     }
     trace_printf("  -> WiFi module initialized\n");
 
-    trace_printf("\nStep 2: Connecting to network '%s'...\n", WIFI_SSID);
+    trace_printf("\nStep 3: Connecting to network '%s'...\n", WIFI_SSID);
     status = WIFI_Connect(WIFI_SSID, WIFI_PASSWORD, WIFI_ECN_WPA2_PSK);
     if (status != WIFI_STATUS_OK) {
         trace_printf("ERROR: WiFi connection failed! (Status: %d)\n", status);
@@ -125,7 +127,7 @@ static void WiFi_InitAndConnect(void) {
     }
     trace_printf("  -> Connected to WiFi network\n");
 
-    trace_printf("\nStep 3: Getting IP address...\n");
+    trace_printf("\nStep 4: Getting IP address...\n");
     status = WIFI_GetIP_Address(ip_addr);
     if (status != WIFI_STATUS_OK) {
         trace_printf("ERROR: Failed to get IP address! (Status: %d)\n", status);
@@ -134,7 +136,7 @@ static void WiFi_InitAndConnect(void) {
     trace_printf("  -> IP Address: %d.%d.%d.%d\n", ip_addr[0], ip_addr[1],
                  ip_addr[2], ip_addr[3]);
 
-    trace_printf("\nStep 4: Starting HTTP server on port %d...\n",
+    trace_printf("\nStep 4a: Starting HTTP server on port %d...\n",
                  HTTP_SERVER_PORT);
     status = WIFI_StartServer(0, WIFI_TCP_PROTOCOL, "HTTP", HTTP_SERVER_PORT);
     if (status != WIFI_STATUS_OK) {
@@ -173,14 +175,14 @@ static void HTTP_ServerProcess(void) {
         http_buffer[recv_len] = '\0';
 
         /* Filter out WiFi module status messages */
-        // if (strstr((char *)http_buffer, "[SOMA]") != NULL ||
-        //     strstr((char *)http_buffer, "[EOMA]") != NULL ||
-        //     strstr((char *)http_buffer, "Unhandled Socket") != NULL ||
-        //     strstr((char *)http_buffer, "TCP SVR") != NULL ||
-        //     strcmp((char *)http_buffer, "-1") == 0 ||
-        //     (recv_len <= 3 && http_buffer[0] == '-')) {
-        //     return; /* Silently ignore status messages */
-        // }
+        if (strstr((char *)http_buffer, "[SOMA]") != NULL ||
+            strstr((char *)http_buffer, "[EOMA]") != NULL ||
+            strstr((char *)http_buffer, "Unhandled") != NULL ||
+            strstr((char *)http_buffer, "Socket") != NULL ||
+            strcmp((char *)http_buffer, "-1") == 0 ||
+            (recv_len <= 3 && http_buffer[0] == '-')) {
+            return; /* Silently ignore status messages */
+        }
 
         /* This appears to be an actual HTTP request */
         request_count++;
@@ -189,7 +191,7 @@ static void HTTP_ServerProcess(void) {
         trace_printf("[%lu] %s\n", request_count,
                      request_line ? request_line : "Invalid request");
 
-        /* Blink green LED briefly on each request (turn off, will turn back on after processing) */
+        /* Blink green LED briefly on each request */
         BSP_LED_Off(LED_GREEN);
 
         /* Restore buffer for processing (strtok modified it) */
@@ -197,90 +199,61 @@ static void HTTP_ServerProcess(void) {
 
         /* Check if it's a GET request */
         if (strncmp((char *)http_buffer, "GET", 3) == 0) {
-            /* Mark connection as active and update timestamp */
-            connection_state.is_active = 1;
-            connection_state.last_activity_ms = HAL_GetTick();
+            /* Get latest magnetometer sample */
+            MagSample_t sample;
+            char x_str[16] = "-.----";
+            char y_str[16] = "-.----";
+            char z_str[16] = "-.----";
+            uint32_t timestamp = 0;
 
-            /* Check if this is a request for streaming data (e.g., /api/data) */
-            if (strstr((char *)http_buffer, "GET /api/data") != NULL) {
-                /* API endpoint - keep connection open for streaming */
-                connection_state.needs_close = 0;
-                connection_state.timeout_ms = 30000; /* 30 second timeout for data streaming */
-
-                trace_printf("[%lu] API request - connection will stay open\n", request_count);
-
-                /* TODO: Send JSON response with magnetic sensor data */
-                /* For now, send a simple JSON response */
-                char response[512];
-                snprintf(response, sizeof(response),
-                         "HTTP/1.1 200 OK\r\n"
-                         "Content-Type: application/json\r\n"
-                         "Access-Control-Allow-Origin: *\r\n"
-                         "\r\n"
-                         "{\"status\":\"ok\",\"magnetic_x\":0,\"magnetic_y\":0,\"magnetic_z\":0}");
-
-                status = WIFI_SendData(0, (uint8_t *)response, strlen(response), &sent_len);
-
-                if (status == WIFI_STATUS_OK) {
-                    trace_printf("[%lu] Sent API response (%d bytes)\n", request_count, sent_len);
-                    /* Don't close - let client close or timeout */
-                    BSP_LED_On(LED_GREEN);
-                } else {
-                    trace_printf("[%lu] ERROR: Failed to send API response\n", request_count);
-                    connection_state.needs_close = 1;
-                }
-            } else {
-                /* Regular webpage request - close after sending */
-                connection_state.needs_close = 1;
-                connection_state.timeout_ms = 5000; /* 5 second timeout */
-
-                char response[1024];
-                snprintf(response, sizeof(response), "%s%s", HTTP_RESPONSE_HEADER, HTML_PAGE);
-
-                /* Send response */
-                status = WIFI_SendData(0, (uint8_t *)response, strlen(response), &sent_len);
-
-                if (status == WIFI_STATUS_OK) {
-                    trace_printf("[%lu] Sent webpage response (%d bytes)\n", request_count, sent_len);
-
-                    /* Close connection immediately after sending webpage */
-                    WIFI_CloseClientConnection();
-                    trace_printf("  -> Connection closed immediately\n");
-
-                    /* Reset connection state */
-                    connection_state.is_active = 0;
-                    connection_state.needs_close = 0;
-
-                    /* Turn green LED back on after successful response */
-                    BSP_LED_On(LED_GREEN);
-
-                    /* Stop and restart server to accept new connections */
-                    WIFI_StopServer(0);
-                    trace_printf("  -> Server stopped\n");
-
-                    /* Brief delay before restart */
-                    HAL_Delay(100);
-
-                    status = WIFI_StartServer(0, WIFI_TCP_PROTOCOL, "HTTP", HTTP_SERVER_PORT);
-                    if (status == WIFI_STATUS_OK) {
-                        trace_printf("  -> Server restarted, ready for next request\n");
-                    } else {
-                        trace_printf("  -> ERROR: Failed to restart server!\n");
-                    }
-                } else {
-                    trace_printf("[%lu] ERROR: Failed to send response (Status: %d)\n",
-                                request_count, status);
-                    /* Close connection even on error to prevent socket leak */
-                    WIFI_CloseClientConnection();
-                    connection_state.is_active = 0;
-                    connection_state.needs_close = 0;
-                    BSP_LED_On(LED_GREEN);
-                }
+            if (Magnetometer_GetAvailableSamples() > 0 &&
+                Magnetometer_ReadSample(&sample)) {
+                snprintf(x_str, sizeof(x_str), "%.4f", sample.x);
+                snprintf(y_str, sizeof(y_str), "%.4f", sample.y);
+                snprintf(z_str, sizeof(z_str), "%.4f", sample.z);
+                timestamp = sample.timestamp_ms;
             }
 
-            /* Return to idle */
-            server_state = SERVER_STATE_IDLE;
+            /* Build HTML page with embedded data */
+            char response[1024];
+            int len =
+                snprintf(response, sizeof(response), "%s" HTML_PAGE_TEMPLATE,
+                         HTTP_HTML_HEADER, x_str, y_str, z_str, timestamp);
+
+            status = WIFI_SendData(0, (uint8_t *)response, len, &sent_len);
+
+            if (status == WIFI_STATUS_OK) {
+                trace_printf("[%lu] Sent HTML page with data (%d bytes)\n",
+                             request_count, sent_len);
+            } else {
+                trace_printf("[%lu] ERROR: Failed to send page\n",
+                             request_count);
+            }
+
+            BSP_LED_On(LED_GREEN);
+
+            /* WORKAROUND: Restart server after every request to prevent socket
+             * exhaustion */
+            /* The WiFi module doesn't properly close sockets, so we force
+             * cleanup */
+            trace_printf("[%lu] Restarting server to cleanup sockets...\n",
+                         request_count);
+            WIFI_CloseClientConnection();
+            WIFI_StopServer(0);
+            HAL_Delay(100);
+            status = WIFI_StartServer(0, WIFI_TCP_PROTOCOL, "HTTP",
+                                      HTTP_SERVER_PORT);
+            if (status == WIFI_STATUS_OK) {
+                trace_printf("[%lu] Server restarted successfully\n",
+                             request_count);
+            } else {
+                trace_printf("[%lu] ERROR: Server restart failed!\n",
+                             request_count);
+            }
         }
+
+        /* Return to idle */
+        server_state = SERVER_STATE_IDLE;
     }
 }
 
@@ -309,16 +282,19 @@ static void HTTP_ServerMaintenance(void) {
             WIFI_StopServer(0);
             HAL_Delay(100);
 
-            WIFI_Status_t status = WIFI_StartServer(0, WIFI_TCP_PROTOCOL, "HTTP", HTTP_SERVER_PORT);
+            WIFI_Status_t status = WIFI_StartServer(0, WIFI_TCP_PROTOCOL,
+                                                    "HTTP", HTTP_SERVER_PORT);
             if (status == WIFI_STATUS_OK) {
                 trace_printf("  -> Server restarted after timeout\n");
             } else {
-                trace_printf("  -> ERROR: Failed to restart server after timeout!\n");
+                trace_printf(
+                    "  -> ERROR: Failed to restart server after timeout!\n");
             }
         }
     }
 
-    /* Check if connection needs to be closed (flagged by error or other condition) */
+    /* Check if connection needs to be closed (flagged by error or other
+     * condition) */
     if (connection_state.needs_close && connection_state.is_active) {
         trace_printf("Closing connection as requested\n");
 
@@ -330,7 +306,8 @@ static void HTTP_ServerMaintenance(void) {
         WIFI_StopServer(0);
         HAL_Delay(100);
 
-        WIFI_Status_t status = WIFI_StartServer(0, WIFI_TCP_PROTOCOL, "HTTP", HTTP_SERVER_PORT);
+        WIFI_Status_t status =
+            WIFI_StartServer(0, WIFI_TCP_PROTOCOL, "HTTP", HTTP_SERVER_PORT);
         if (status == WIFI_STATUS_OK) {
             trace_printf("  -> Server restarted\n");
         }
@@ -358,7 +335,11 @@ static void LED_Init(void) {
 
 static void SystemClock_Config(void) {
     RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-    RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+    RCC_ClkInitTypeDef RCC_ClkInitStruct = {.ClockType = 0,
+                                            .SYSCLKSource = 0,
+                                            .AHBCLKDivider = 0,
+                                            .APB1CLKDivider = 0,
+                                            .APB2CLKDivider = 0};
 
     /* Configure the main internal regulator output voltage */
     __HAL_RCC_PWR_CLK_ENABLE();
