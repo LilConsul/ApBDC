@@ -11,7 +11,6 @@
 
 /* External flag declarations from main.cpp */
 extern volatile uint8_t http_process_flag;
-extern volatile uint8_t server_maintenance_flag;
 
 /* External TIM2 handle from magnetometer_stream.c */
 extern TIM_HandleTypeDef htim2;
@@ -82,18 +81,15 @@ void PendSV_Handler(void) {
  * @brief This function handles System tick timer.
  */
 void SysTick_Handler(void) {
-    static uint32_t maintenance_counter = 0;
-
+    static uint32_t poll_counter = 0;
+    
     HAL_IncTick();
-
-    /* Set HTTP process flag every tick (1ms) */
-    http_process_flag = 1;
-
-    /* Set maintenance flag every 100ms */
-    maintenance_counter++;
-    if (maintenance_counter >= 100) {
-        maintenance_counter = 0;
-        server_maintenance_flag = 1;
+    
+    /* Poll for HTTP data every 100ms as fallback (in case DRDY interrupt is missed) */
+    poll_counter++;
+    if (poll_counter >= 100) {
+        poll_counter = 0;
+        http_process_flag = 1;
     }
 }
 
@@ -135,6 +131,13 @@ void I2C2_ER_IRQHandler(void) {
  */
 void EXTI0_IRQHandler(void) {
     HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_0);
+}
+
+/**
+ * @brief This function handles EXTI line[15:10] interrupts (WiFi DRDY on PG12).
+ */
+void EXTI15_10_IRQHandler(void) {
+    HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_12);
 }
 
 /**

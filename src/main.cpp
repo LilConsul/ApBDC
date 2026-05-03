@@ -39,14 +39,12 @@ static ConnectionState_t connection_state = {
 
 /* Interrupt flags for main loop */
 volatile uint8_t http_process_flag = 0;
-volatile uint8_t server_maintenance_flag = 0;
 
 /* Private function prototypes -----------------------------------------------*/
 static void SystemClock_Config(void);
 static void LED_Init(void);
 static void WiFi_InitAndConnect(void);
 static void HTTP_ServerProcess(void);
-static void HTTP_ServerMaintenance(void);
 static float simple_atan2(float y, float x);
 
 [[noreturn]]
@@ -91,16 +89,9 @@ int main(int argc, char *argv[]) {
     BSP_LED_On(LED_GREEN);
 
     while (1) {
-        /* Process HTTP requests when flag is set */
         if (http_process_flag) {
             http_process_flag = 0;
             HTTP_ServerProcess();
-        }
-
-        /* Perform maintenance when timer expires */
-        if (server_maintenance_flag) {
-            server_maintenance_flag = 0;
-            HTTP_ServerMaintenance();
         }
 
         __WFI();
@@ -149,7 +140,7 @@ static void WiFi_InitAndConnect(void) {
 }
 
 /**
- * @brief  Process HTTP requests (interrupt-driven, non-blocking)
+ * @brief  Process HTTP requests
  * @param  None
  * @retval None
  */
@@ -185,17 +176,14 @@ static void HTTP_ServerProcess(void) {
             return; /* Silently ignore status messages */
         }
 
-        /* This appears to be an actual HTTP request */
         request_count++;
 
         char *request_line = strtok((char *)http_buffer, "\r\n");
         trace_printf("[%lu] %s\n", request_count,
                      request_line ? request_line : "Invalid request");
 
-        /* Blink green LED briefly on each request */
         BSP_LED_Off(LED_GREEN);
 
-        /* Restore buffer for processing (strtok modified it) */
         http_buffer[recv_len] = '\0';
 
         /* Check if it's a GET request */
@@ -215,25 +203,23 @@ static void HTTP_ServerProcess(void) {
                 snprintf(y_str, sizeof(y_str), "%.4f", sample.y);
                 snprintf(z_str, sizeof(z_str), "%.4f", sample.z);
                 timestamp = sample.timestamp_ms;
-                
+
                 /* Calculate heading from X and Y components */
                 /* simple_atan2(y, x) gives angle in radians, convert to degrees */
                 heading = simple_atan2(sample.y, sample.x) * 180.0f / 3.14159265f;
-                
+
                 /* Normalize to 0-360 range */
                 if (heading < 0) {
                     heading += 360.0f;
                 }
-                
+
                 snprintf(heading_str, sizeof(heading_str), "%.1f", heading);
             }
 
-            /* Build HTML page with embedded data */
-            /* Template expects: heading_display, heading_rotation, x, y, z, timestamp */
             char response[2048];
             int len =
                 snprintf(response, sizeof(response), "%s" HTML_PAGE_TEMPLATE,
-                         HTTP_HTML_HEADER, heading_str, heading_str, 
+                         HTTP_HTML_HEADER, heading_str, heading_str,
                          x_str, y_str, z_str, timestamp);
 
             status = WIFI_SendData(0, (uint8_t *)response, len, &sent_len);
@@ -248,10 +234,6 @@ static void HTTP_ServerProcess(void) {
 
             BSP_LED_On(LED_GREEN);
 
-            /* WORKAROUND: Restart server after every request to prevent socket
-             * exhaustion */
-            /* The WiFi module doesn't properly close sockets, so we force
-             * cleanup */
             trace_printf("[%lu] Restarting server to cleanup sockets...\n",
                          request_count);
             WIFI_CloseClientConnection();
@@ -268,65 +250,7 @@ static void HTTP_ServerProcess(void) {
             }
         }
 
-        /* Return to idle */
         server_state = SERVER_STATE_IDLE;
-    }
-}
-
-/**
- * @brief  Perform server maintenance tasks (timer-driven)
- * @param  None
- * @retval None
- */
-static void HTTP_ServerMaintenance(void) {
-    /* Check for connection timeout */
-    if (connection_state.is_active) {
-        uint32_t current_time = HAL_GetTick();
-        uint32_t elapsed = current_time - connection_state.last_activity_ms;
-
-        if (elapsed > connection_state.timeout_ms) {
-            trace_printf("Connection timeout (%lu ms) - closing\n", elapsed);
-
-            /* Close the connection */
-            WIFI_CloseClientConnection();
-
-            /* Reset connection state */
-            connection_state.is_active = 0;
-            connection_state.needs_close = 0;
-
-            /* Restart server to accept new connections */
-            WIFI_StopServer(0);
-            HAL_Delay(100);
-
-            WIFI_Status_t status = WIFI_StartServer(0, WIFI_TCP_PROTOCOL,
-                                                    "HTTP", HTTP_SERVER_PORT);
-            if (status == WIFI_STATUS_OK) {
-                trace_printf("  -> Server restarted after timeout\n");
-            } else {
-                trace_printf(
-                    "  -> ERROR: Failed to restart server after timeout!\n");
-            }
-        }
-    }
-
-    /* Check if connection needs to be closed (flagged by error or other
-     * condition) */
-    if (connection_state.needs_close && connection_state.is_active) {
-        trace_printf("Closing connection as requested\n");
-
-        WIFI_CloseClientConnection();
-        connection_state.is_active = 0;
-        connection_state.needs_close = 0;
-
-        /* Restart server */
-        WIFI_StopServer(0);
-        HAL_Delay(100);
-
-        WIFI_Status_t status =
-            WIFI_StartServer(0, WIFI_TCP_PROTOCOL, "HTTP", HTTP_SERVER_PORT);
-        if (status == WIFI_STATUS_OK) {
-            trace_printf("  -> Server restarted\n");
-        }
     }
 }
 
@@ -398,7 +322,7 @@ static float simple_atan2(float y, float x) {
     const float PI = 3.14159265f;
     float abs_y = (y < 0) ? -y : y;
     float angle;
-    
+
     if (x >= 0) {
         float r = (x - abs_y) / (x + abs_y);
         angle = 0.785398163f - 0.785398163f * r;  // PI/4
@@ -406,7 +330,7 @@ static float simple_atan2(float y, float x) {
         float r = (x + abs_y) / (abs_y - x);
         angle = 2.356194490f - 0.785398163f * r;  // 3*PI/4
     }
-    
+
     return (y < 0) ? -angle : angle;
 }
 
