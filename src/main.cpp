@@ -1,12 +1,12 @@
 #include "diag/trace.h"
 #include "es_wifi_io.h"
 #include "sensor/magnetometer_stream.h"
-#include "stm32f413h_discovery.h"
 #include "stm32f4xx_hal.h"
 #include "web_content.h"
-#include "wifi.h"
 #include <stdio.h>
+#include <stm32f413h_discovery.h>
 #include <string.h>
+#include <wifi.h>
 #include "error_handler.hpp"
 #include "wifi_conf.hpp"
 

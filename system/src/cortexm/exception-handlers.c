@@ -622,6 +622,9 @@ SysTick_Handler (void)
 #endif
   
   /* Increment maintenance timer (1ms resolution) */
+  extern volatile uint32_t maintenance_timer;
+  extern volatile uint8_t server_maintenance_flag;
+  
   if (maintenance_timer > 0)
   {
     maintenance_timer--;

@@ -1,6 +1,6 @@
+#include <stm32f413h_discovery.h>
 #include "error_handler.hpp"
 #include "diag/trace.h"
-#include "stm32f413h_discovery.h"
 #include <cstring>
 
 // Static flag to track initialization
