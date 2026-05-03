@@ -47,6 +47,7 @@ static void LED_Init(void);
 static void WiFi_InitAndConnect(void);
 static void HTTP_ServerProcess(void);
 static void HTTP_ServerMaintenance(void);
+static float simple_atan2(float y, float x);
 
 [[noreturn]]
 int main(int argc, char *argv[]) {
@@ -204,7 +205,9 @@ static void HTTP_ServerProcess(void) {
             char x_str[16] = "-.----";
             char y_str[16] = "-.----";
             char z_str[16] = "-.----";
+            char heading_str[16] = "---";
             uint32_t timestamp = 0;
+            float heading = 0.0f;
 
             if (Magnetometer_GetAvailableSamples() > 0 &&
                 Magnetometer_ReadSample(&sample)) {
@@ -212,13 +215,26 @@ static void HTTP_ServerProcess(void) {
                 snprintf(y_str, sizeof(y_str), "%.4f", sample.y);
                 snprintf(z_str, sizeof(z_str), "%.4f", sample.z);
                 timestamp = sample.timestamp_ms;
+                
+                /* Calculate heading from X and Y components */
+                /* simple_atan2(y, x) gives angle in radians, convert to degrees */
+                heading = simple_atan2(sample.y, sample.x) * 180.0f / 3.14159265f;
+                
+                /* Normalize to 0-360 range */
+                if (heading < 0) {
+                    heading += 360.0f;
+                }
+                
+                snprintf(heading_str, sizeof(heading_str), "%.1f", heading);
             }
 
             /* Build HTML page with embedded data */
-            char response[1024];
+            /* Template expects: heading_display, heading_rotation, x, y, z, timestamp */
+            char response[2048];
             int len =
                 snprintf(response, sizeof(response), "%s" HTML_PAGE_TEMPLATE,
-                         HTTP_HTML_HEADER, x_str, y_str, z_str, timestamp);
+                         HTTP_HTML_HEADER, heading_str, heading_str, 
+                         x_str, y_str, z_str, timestamp);
 
             status = WIFI_SendData(0, (uint8_t *)response, len, &sent_len);
 
@@ -375,6 +391,23 @@ static void SystemClock_Config(void) {
 
     /* SysTick_IRQn interrupt configuration */
     HAL_NVIC_SetPriority(SysTick_IRQn, 0, 0);
+}
+
+/* Simple atan2 approximation for heading calculation */
+static float simple_atan2(float y, float x) {
+    const float PI = 3.14159265f;
+    float abs_y = (y < 0) ? -y : y;
+    float angle;
+    
+    if (x >= 0) {
+        float r = (x - abs_y) / (x + abs_y);
+        angle = 0.785398163f - 0.785398163f * r;  // PI/4
+    } else {
+        float r = (x + abs_y) / (abs_y - x);
+        angle = 2.356194490f - 0.785398163f * r;  // 3*PI/4
+    }
+    
+    return (y < 0) ? -angle : angle;
 }
 
 #pragma GCC diagnostic pop

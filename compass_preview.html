@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>STM32 Compass</title>
+    <meta charset="UTF-8">
+    <style>
+        body {
+            font: 20px Arial;
+            margin: 40px;
+            background: #222;
+            color: #0f0;
+            text-align: center;
+        }
+        h1 {
+            color: #0f0;
+            margin-bottom: 10px;
+        }
+        .compass-container {
+            margin: 30px auto;
+        }
+        .compass {
+            width: 300px;
+            height: 300px;
+            margin: 0 auto;
+        }
+        .heading {
+            font-size: 48px;
+            margin: 20px;
+            color: #0ff;
+            font-weight: bold;
+        }
+        .coords {
+            font-size: 16px;
+            margin: 10px;
+            color: #888;
+        }
+        .btn {
+            background: #0f0;
+            color: #000;
+            border: none;
+            padding: 15px 40px;
+            font-size: 20px;
+            cursor: pointer;
+            border-radius: 5px;
+            margin: 20px;
+        }
+        .btn:hover {
+            background: #0ff;
+        }
+        .btn:active {
+            background: #0a0;
+        }
+        #status {
+            color: #0f0;
+            font-size: 14px;
+            margin: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>STM32 Magnetometer Compass</h1>
+    <div id="status">Click button to refresh</div>
+    <div class="heading"><span id="heading">45.0</span>&deg;</div>
+    <div class="compass-container">
+        <svg class="compass" viewBox="0 0 300 300">
+            <circle cx="150" cy="150" r="140" fill="#111" stroke="#0f0" stroke-width="3"/>
+            <text x="150" y="30" text-anchor="middle" fill="#f00" font-size="24" font-weight="bold">N</text>
+            <text x="150" y="280" text-anchor="middle" fill="#0f0" font-size="20">S</text>
+            <text x="270" y="155" text-anchor="middle" fill="#0f0" font-size="20">E</text>
+            <text x="30" y="155" text-anchor="middle" fill="#0f0" font-size="20">W</text>
+            <g id="needle" transform="rotate(45 150 150)">
+                <polygon points="150,40 145,150 150,160 155,150" fill="#f00"/>
+                <polygon points="150,160 145,150 150,260 155,150" fill="#fff"/>
+                <circle cx="150" cy="150" r="8" fill="#ff0"/>
+            </g>
+        </svg>
+    </div>
+    <div class="coords">X: 0.7071 | Y: 0.7071 | Z: 0.0000</div>
+    <div class="coords">Time: 12345 ms</div>
+    <button class="btn" onclick="updateCompass()">Refresh</button>
+    
+    <script>
+        // Mock data for testing different headings
+        const mockData = [
+            { heading: 0, x: 1.0, y: 0.0, z: 0.0 },      // North
+            { heading: 45, x: 0.7071, y: 0.7071, z: 0.0 }, // NE
+            { heading: 90, x: 0.0, y: 1.0, z: 0.0 },     // East
+            { heading: 135, x: -0.7071, y: 0.7071, z: 0.0 }, // SE
+            { heading: 180, x: -1.0, y: 0.0, z: 0.0 },   // South
+            { heading: 225, x: -0.7071, y: -0.7071, z: 0.0 }, // SW
+            { heading: 270, x: 0.0, y: -1.0, z: 0.0 },   // West
+            { heading: 315, x: 0.7071, y: -0.7071, z: 0.0 }  // NW
+        ];
+        
+        let currentIndex = 1;
+        
+        function updateCompass() {
+            const data = mockData[currentIndex];
+            document.getElementById('heading').textContent = data.heading.toFixed(1);
+            document.getElementById('needle').setAttribute('transform', `rotate(${data.heading} 150 150)`);
+            document.querySelector('.coords').innerHTML = 
+                `X: ${data.x.toFixed(4)} | Y: ${data.y.toFixed(4)} | Z: ${data.z.toFixed(4)}`;
+            
+            currentIndex = (currentIndex + 1) % mockData.length;
+        }
+    </script>
+</body>
+</html>
