@@ -5,8 +5,8 @@
  ******************************************************************************
  */
 
-#include "i2c_dma.h"
-#include "magnetometer_stream.h"
+#include "sensor/i2c_dma.h"
+#include "sensor/magnetometer_stream.h"
 #include "stm32f4xx_hal.h"
 
 /* External flag declarations from main.cpp */

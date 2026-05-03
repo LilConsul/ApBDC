@@ -13,9 +13,9 @@
  */
 
 /* Includes ------------------------------------------------------------------*/
-#include "lis3mdl.h"
+#include "sensor/lis3mdl.h"
 #include "diag/trace.h"
-#include "i2c_dma.h"
+#include "sensor/i2c_dma.h"
 
 /* Private constants ---------------------------------------------------------*/
 

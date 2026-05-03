@@ -21,8 +21,8 @@
 #include "stm32f413h_discovery.h"
 
 /* Driver includes */
-#include "i2c_dma.h"
-#include "lis3mdl.h"
+#include "sensor/i2c_dma.h"
+#include "sensor/lis3mdl.h"
 
 /* Private defines -----------------------------------------------------------*/
 #define BUTTON_PIN                               GPIO_PIN_0

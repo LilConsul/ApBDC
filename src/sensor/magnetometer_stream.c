@@ -18,9 +18,9 @@
  */
 
 /* Includes ------------------------------------------------------------------*/
-#include "magnetometer_stream.h"
+#include "sensor/magnetometer_stream.h"
 #include "diag/trace.h"
-#include "i2c_dma.h"
+#include "sensor/i2c_dma.h"
 #include "stm32f4xx_hal.h"
 #include <string.h>
 

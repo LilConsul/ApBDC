@@ -1,6 +1,6 @@
 #include "diag/trace.h"
 #include "es_wifi_io.h"
-#include "magnetometer_stream.h"
+#include "sensor/magnetometer_stream.h"
 #include "stm32f413h_discovery.h"
 #include "stm32f4xx_hal.h"
 #include "web_content.h"

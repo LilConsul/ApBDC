@@ -14,9 +14,9 @@
  */
 
 /* Includes ------------------------------------------------------------------*/
-#include "i2c_dma.h"
+#include "sensor/i2c_dma.h"
 #include "diag/trace.h"
-#include "magnetometer_stream.h"
+#include "sensor/magnetometer_stream.h"
 
 /* Private variables ---------------------------------------------------------*/
 I2C_HandleTypeDef I2cHandle;

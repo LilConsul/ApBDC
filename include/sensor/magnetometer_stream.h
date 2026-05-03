@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 /* Includes ------------------------------------------------------------------*/
-#include "lis3mdl.h"
+#include "sensor/lis3mdl.h"
 #include <stdint.h>
 
 /* Configuration -------------------------------------------------------------*/
