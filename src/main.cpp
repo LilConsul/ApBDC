@@ -197,10 +197,10 @@ static void HTTP_ServerProcess(void) {
             }
 
             char response[2048];
-            int len =
-                snprintf(response, sizeof(response), "%s" HTML_PAGE_TEMPLATE,
-                         HTTP_HTML_HEADER, heading_str, heading_str, x_str,
-                         y_str, z_str, timestamp);
+            int len = snprintf(response, sizeof(response), HTTP_HTML_HEADER);
+            len += snprintf(response + len, sizeof(response) - len,
+                           HTML_PAGE_TEMPLATE, heading_str, heading_str, x_str,
+                           y_str, z_str, timestamp);
 
             status = WIFI_SendData(0, (uint8_t *)response, len, &sent_len);
 
