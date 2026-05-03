@@ -610,9 +610,6 @@ PendSV_Handler (void)
     }
 }
 
-/* External maintenance timer variable from es_wifi_io.c */
-extern volatile uint32_t maintenance_timer;
-extern volatile uint8_t server_maintenance_flag;
 
 void __attribute__ ((section(".after_vectors"),weak))
 SysTick_Handler (void)
@@ -620,20 +617,6 @@ SysTick_Handler (void)
 #if defined(USE_HAL_DRIVER)
   HAL_IncTick();
 #endif
-  
-  /* Increment maintenance timer (1ms resolution) */
-  extern volatile uint32_t maintenance_timer;
-  extern volatile uint8_t server_maintenance_flag;
-  
-  if (maintenance_timer > 0)
-  {
-    maintenance_timer--;
-    if (maintenance_timer == 0)
-    {
-      /* Timer expired - signal maintenance needed */
-      server_maintenance_flag = 1;
-    }
-  }
 }
 
 // ----------------------------------------------------------------------------

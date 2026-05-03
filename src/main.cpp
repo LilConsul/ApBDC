@@ -39,14 +39,12 @@ static ConnectionState_t connection_state = {
 
 /* Interrupt flags for main loop */
 volatile uint8_t http_process_flag = 0;
-volatile uint8_t server_maintenance_flag = 0;
 
 /* Private function prototypes -----------------------------------------------*/
 static void SystemClock_Config(void);
 static void LED_Init(void);
 static void WiFi_InitAndConnect(void);
 static void HTTP_ServerProcess(void);
-static void HTTP_ServerMaintenance(void);
 
 [[noreturn]]
 int main(int argc, char *argv[]) {
@@ -90,16 +88,9 @@ int main(int argc, char *argv[]) {
     BSP_LED_On(LED_GREEN);
 
     while (1) {
-        /* Process HTTP requests when flag is set */
         if (http_process_flag) {
             http_process_flag = 0;
             HTTP_ServerProcess();
-        }
-
-        /* Perform maintenance when timer expires */
-        if (server_maintenance_flag) {
-            server_maintenance_flag = 0;
-            HTTP_ServerMaintenance();
         }
 
         __WFI();
@@ -148,7 +139,7 @@ static void WiFi_InitAndConnect(void) {
 }
 
 /**
- * @brief  Process HTTP requests (interrupt-driven, non-blocking)
+ * @brief  Process HTTP requests
  * @param  None
  * @retval None
  */
@@ -184,17 +175,14 @@ static void HTTP_ServerProcess(void) {
             return; /* Silently ignore status messages */
         }
 
-        /* This appears to be an actual HTTP request */
         request_count++;
 
         char *request_line = strtok((char *)http_buffer, "\r\n");
         trace_printf("[%lu] %s\n", request_count,
                      request_line ? request_line : "Invalid request");
 
-        /* Blink green LED briefly on each request */
         BSP_LED_Off(LED_GREEN);
 
-        /* Restore buffer for processing (strtok modified it) */
         http_buffer[recv_len] = '\0';
 
         /* Check if it's a GET request */
@@ -214,7 +202,6 @@ static void HTTP_ServerProcess(void) {
                 timestamp = sample.timestamp_ms;
             }
 
-            /* Build HTML page with embedded data */
             char response[1024];
             int len =
                 snprintf(response, sizeof(response), "%s" HTML_PAGE_TEMPLATE,
@@ -232,10 +219,6 @@ static void HTTP_ServerProcess(void) {
 
             BSP_LED_On(LED_GREEN);
 
-            /* WORKAROUND: Restart server after every request to prevent socket
-             * exhaustion */
-            /* The WiFi module doesn't properly close sockets, so we force
-             * cleanup */
             trace_printf("[%lu] Restarting server to cleanup sockets...\n",
                          request_count);
             WIFI_CloseClientConnection();
@@ -252,65 +235,7 @@ static void HTTP_ServerProcess(void) {
             }
         }
 
-        /* Return to idle */
         server_state = SERVER_STATE_IDLE;
-    }
-}
-
-/**
- * @brief  Perform server maintenance tasks (timer-driven)
- * @param  None
- * @retval None
- */
-static void HTTP_ServerMaintenance(void) {
-    /* Check for connection timeout */
-    if (connection_state.is_active) {
-        uint32_t current_time = HAL_GetTick();
-        uint32_t elapsed = current_time - connection_state.last_activity_ms;
-
-        if (elapsed > connection_state.timeout_ms) {
-            trace_printf("Connection timeout (%lu ms) - closing\n", elapsed);
-
-            /* Close the connection */
-            WIFI_CloseClientConnection();
-
-            /* Reset connection state */
-            connection_state.is_active = 0;
-            connection_state.needs_close = 0;
-
-            /* Restart server to accept new connections */
-            WIFI_StopServer(0);
-            HAL_Delay(100);
-
-            WIFI_Status_t status = WIFI_StartServer(0, WIFI_TCP_PROTOCOL,
-                                                    "HTTP", HTTP_SERVER_PORT);
-            if (status == WIFI_STATUS_OK) {
-                trace_printf("  -> Server restarted after timeout\n");
-            } else {
-                trace_printf(
-                    "  -> ERROR: Failed to restart server after timeout!\n");
-            }
-        }
-    }
-
-    /* Check if connection needs to be closed (flagged by error or other
-     * condition) */
-    if (connection_state.needs_close && connection_state.is_active) {
-        trace_printf("Closing connection as requested\n");
-
-        WIFI_CloseClientConnection();
-        connection_state.is_active = 0;
-        connection_state.needs_close = 0;
-
-        /* Restart server */
-        WIFI_StopServer(0);
-        HAL_Delay(100);
-
-        WIFI_Status_t status =
-            WIFI_StartServer(0, WIFI_TCP_PROTOCOL, "HTTP", HTTP_SERVER_PORT);
-        if (status == WIFI_STATUS_OK) {
-            trace_printf("  -> Server restarted\n");
-        }
     }
 }
 
