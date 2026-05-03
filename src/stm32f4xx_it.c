@@ -82,10 +82,11 @@ void PendSV_Handler(void) {
  */
 void SysTick_Handler(void) {
     static uint32_t poll_counter = 0;
-    
+
     HAL_IncTick();
-    
-    /* Poll for HTTP data every 100ms as fallback (in case DRDY interrupt is missed) */
+
+    /* Poll for HTTP data every 100ms as fallback (in case DRDY interrupt is
+     * missed) */
     poll_counter++;
     if (poll_counter >= 100) {
         poll_counter = 0;

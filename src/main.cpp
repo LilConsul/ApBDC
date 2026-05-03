@@ -21,21 +21,11 @@ typedef enum {
     SERVER_STATE_SENT_RESPONSE
 } ServerState_t;
 
-/* Connection tracking */
-typedef struct {
-    uint8_t is_active;         /* Connection is active */
-    uint8_t needs_close;       /* Connection should be closed */
-    uint32_t last_activity_ms; /* Last activity timestamp */
-    uint32_t timeout_ms;       /* Timeout for this connection */
-} ConnectionState_t;
-
 /* Private variables ---------------------------------------------------------*/
 static uint8_t http_buffer[HTTP_BUFFER_SIZE];
 static uint8_t ip_addr[4];
 static ServerState_t server_state = SERVER_STATE_IDLE;
 static uint32_t request_count = 0;
-static ConnectionState_t connection_state = {
-    0, 0, 0, 5000}; /* 5 second default timeout */
 
 /* Interrupt flags for main loop */
 volatile uint8_t http_process_flag = 0;
@@ -55,10 +45,9 @@ int main(int argc, char *argv[]) {
     Error_Handler_Init();
 
     trace_printf("\n\n");
-    trace_printf("========================================\n");
+    trace_printf("================================\n");
     trace_printf("  STM32F413H WiFi HTTP Server\n");
-    trace_printf("  (Interrupt-Driven Architecture)\n");
-    trace_printf("========================================\n");
+    trace_printf("================================\n");
     trace_printf("Initializing...\n\n");
 
     /* Initialize magnetometer streaming module */
@@ -69,21 +58,18 @@ int main(int argc, char *argv[]) {
     }
     trace_printf("  -> Magnetometer initialized\n\n");
 
-    /* Initialize and connect WiFi */
     WiFi_InitAndConnect();
 
-    /* Start magnetometer sampling */
     trace_printf("\nStep 5: Starting magnetometer sampling...\n");
     Magnetometer_StartSampling();
     trace_printf("  -> Magnetometer sampling started at 20Hz\n");
 
-    trace_printf("\n========================================\n");
+    trace_printf("\n===================\n");
     trace_printf("  Server Ready!\n");
-    trace_printf("========================================\n");
+    trace_printf("===================\n");
     trace_printf("Access the server at: http://%d.%d.%d.%d\n", ip_addr[0],
                  ip_addr[1], ip_addr[2], ip_addr[3]);
     trace_printf("Waiting for HTTP requests...\n");
-    trace_printf("Magnetometer data streaming at /api/stream\n");
     trace_printf("CPU will enter low-power mode (WFI) between requests\n\n");
 
     BSP_LED_On(LED_GREEN);
@@ -104,26 +90,25 @@ static void WiFi_InitAndConnect(void) {
     trace_printf("Step 2: Initializing WiFi module...\n");
     status = WIFI_Init();
     if (status != WIFI_STATUS_OK) {
-        trace_printf("ERROR: WiFi initialization failed! (Status: %d)\n",
-                     status);
-        Error_Handler("WiFi Init Failed");
+        Error_Handler("ERROR: WiFi initialization failed! (Status: %d)\n",
+                      status);
     }
     trace_printf("  -> WiFi module initialized\n");
 
     trace_printf("\nStep 3: Connecting to network '%s'...\n", WIFI_SSID);
     status = WIFI_Connect(WIFI_SSID, WIFI_PASSWORD, WIFI_ECN_WPA2_PSK);
     if (status != WIFI_STATUS_OK) {
-        trace_printf("ERROR: WiFi connection failed! (Status: %d)\n", status);
-        trace_printf("  Check SSID and password in wifi_conf.hpp\n");
-        Error_Handler("WiFi Connect Failed");
+        Error_Handler("ERROR: WiFi connection failed! (Status: %d)\nCheck SSID "
+                      "and password in include/wifi/wifi_conf.hpp",
+                      status);
     }
     trace_printf("  -> Connected to WiFi network\n");
 
     trace_printf("\nStep 4: Getting IP address...\n");
     status = WIFI_GetIP_Address(ip_addr);
     if (status != WIFI_STATUS_OK) {
-        trace_printf("ERROR: Failed to get IP address! (Status: %d)\n", status);
-        Error_Handler("Get IP Failed");
+        Error_Handler("ERROR: Failed to get IP address! (Status: %d)\n",
+                      status);
     }
     trace_printf("  -> IP Address: %d.%d.%d.%d\n", ip_addr[0], ip_addr[1],
                  ip_addr[2], ip_addr[3]);
@@ -132,9 +117,8 @@ static void WiFi_InitAndConnect(void) {
                  HTTP_SERVER_PORT);
     status = WIFI_StartServer(0, WIFI_TCP_PROTOCOL, "HTTP", HTTP_SERVER_PORT);
     if (status != WIFI_STATUS_OK) {
-        trace_printf("ERROR: Failed to start HTTP server! (Status: %d)\n",
-                     status);
-        Error_Handler("HTTP Server Start Failed");
+        Error_Handler("ERROR: Failed to start HTTP server! (Status: %d)\n",
+                      status);
     }
     trace_printf("  -> HTTP server started\n");
 }
@@ -149,24 +133,19 @@ static void HTTP_ServerProcess(void) {
     uint16_t sent_len = 0;
     WIFI_Status_t status;
 
-    /* Only process if in idle state */
     if (server_state != SERVER_STATE_IDLE) {
-        return; /* Server busy with maintenance */
+        return; /* Server busy :( */
     }
 
-    /* Try to receive data */
     status = WIFI_ReceiveData(0, http_buffer, HTTP_BUFFER_SIZE - 1, &recv_len);
 
-    /* Silently ignore socket errors */
     if (status != WIFI_STATUS_OK || recv_len == 0) {
         return;
     }
 
-    /* We have valid data - check what it is */
     if (recv_len > 0) {
         http_buffer[recv_len] = '\0';
 
-        /* Filter out WiFi module status messages */
         if (strstr((char *)http_buffer, "[SOMA]") != NULL ||
             strstr((char *)http_buffer, "[EOMA]") != NULL ||
             strstr((char *)http_buffer, "Unhandled") != NULL ||
@@ -186,7 +165,6 @@ static void HTTP_ServerProcess(void) {
 
         http_buffer[recv_len] = '\0';
 
-        /* Check if it's a GET request */
         if (strncmp((char *)http_buffer, "GET", 3) == 0) {
             /* Get latest magnetometer sample */
             MagSample_t sample;
@@ -205,8 +183,10 @@ static void HTTP_ServerProcess(void) {
                 timestamp = sample.timestamp_ms;
 
                 /* Calculate heading from X and Y components */
-                /* simple_atan2(y, x) gives angle in radians, convert to degrees */
-                heading = simple_atan2(sample.y, sample.x) * 180.0f / 3.14159265f;
+                /* simple_atan2(y, x) gives angle in radians, convert to degrees
+                 */
+                heading =
+                    simple_atan2(sample.y, sample.x) * 180.0f / 3.14159265f;
 
                 /* Normalize to 0-360 range */
                 if (heading < 0) {
@@ -219,8 +199,8 @@ static void HTTP_ServerProcess(void) {
             char response[2048];
             int len =
                 snprintf(response, sizeof(response), "%s" HTML_PAGE_TEMPLATE,
-                         HTTP_HTML_HEADER, heading_str, heading_str,
-                         x_str, y_str, z_str, timestamp);
+                         HTTP_HTML_HEADER, heading_str, heading_str, x_str,
+                         y_str, z_str, timestamp);
 
             status = WIFI_SendData(0, (uint8_t *)response, len, &sent_len);
 
@@ -234,19 +214,34 @@ static void HTTP_ServerProcess(void) {
 
             BSP_LED_On(LED_GREEN);
 
-            trace_printf("[%lu] Restarting server to cleanup sockets...\n",
+            /* Close connection and restart server to cleanup sockets */
+            trace_printf("[%lu] Closing connection and restarting server...\n",
                          request_count);
             WIFI_CloseClientConnection();
             WIFI_StopServer(0);
             HAL_Delay(100);
+
             status = WIFI_StartServer(0, WIFI_TCP_PROTOCOL, "HTTP",
                                       HTTP_SERVER_PORT);
             if (status == WIFI_STATUS_OK) {
                 trace_printf("[%lu] Server restarted successfully\n",
                              request_count);
+
             } else {
-                trace_printf("[%lu] ERROR: Server restart failed!\n",
+                Error_Handler(
+                    "[%lu] ERROR: Failed to restart server (Status: %d)\n",
+                    request_count, status);
+            }
+
+            if (status != WIFI_STATUS_OK) {
+                trace_printf("[%lu] ERROR: All restart attempts failed, "
+                             "reinitializing WiFi...\n",
                              request_count);
+                BSP_LED_On(LED_RED);
+                WIFI_ResetModule();
+                HAL_Delay(500);
+                WiFi_InitAndConnect();
+                BSP_LED_Off(LED_RED);
             }
         }
 
@@ -257,13 +252,11 @@ static void HTTP_ServerProcess(void) {
 static void LED_Init(void) {
     GPIO_InitTypeDef GPIO_InitStruct = {0};
 
-    /* Initialize user LEDs */
     BSP_LED_Init(LED_GREEN);
     BSP_LED_Init(LED_RED);
     BSP_LED_Off(LED_GREEN);
     BSP_LED_Off(LED_RED);
 
-    /* Initialize MEMS_LED (PE4) and ensure it's off to prevent dim glow */
     __HAL_RCC_GPIOE_CLK_ENABLE();
     GPIO_InitStruct.Pin = GPIO_PIN_4;
     GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -281,11 +274,9 @@ static void SystemClock_Config(void) {
                                             .APB1CLKDivider = 0,
                                             .APB2CLKDivider = 0};
 
-    /* Configure the main internal regulator output voltage */
     __HAL_RCC_PWR_CLK_ENABLE();
     __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
 
-    /* Use HSI directly (16 MHz) - simplest, most reliable configuration */
     RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
     RCC_OscInitStruct.HSIState = RCC_HSI_ON;
     RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
@@ -295,7 +286,6 @@ static void SystemClock_Config(void) {
         Error_Handler("Clock Config Failed - HSI");
     }
 
-    /* Configure CPU, AHB and APB buses clocks */
     RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK |
                                   RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
     RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
@@ -307,13 +297,10 @@ static void SystemClock_Config(void) {
         Error_Handler("Clock Config Failed - Buses");
     }
 
-    /* CRITICAL: Configure SysTick to generate interrupts at 1kHz (1ms) */
     HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq() / 1000);
 
-    /* Set SysTick clock source */
     HAL_SYSTICK_CLKSourceConfig(SYSTICK_CLKSOURCE_HCLK);
 
-    /* SysTick_IRQn interrupt configuration */
     HAL_NVIC_SetPriority(SysTick_IRQn, 0, 0);
 }
 
@@ -325,10 +312,10 @@ static float simple_atan2(float y, float x) {
 
     if (x >= 0) {
         float r = (x - abs_y) / (x + abs_y);
-        angle = 0.785398163f - 0.785398163f * r;  // PI/4
+        angle = 0.785398163f - 0.785398163f * r; // PI/4
     } else {
         float r = (x + abs_y) / (abs_y - x);
-        angle = 2.356194490f - 0.785398163f * r;  // 3*PI/4
+        angle = 2.356194490f - 0.785398163f * r; // 3*PI/4
     }
 
     return (y < 0) ? -angle : angle;

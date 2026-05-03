@@ -22,6 +22,7 @@
 #include "es_wifi_io.h"
 #include <string.h>
 #include "diag/trace.h"
+#include "error_handler.h"
 
 /* Private define ------------------------------------------------------------*/
 #define MIN(a, b)  ((a) < (b) ? (a) : (b))
@@ -138,10 +139,6 @@ int8_t SPI_WIFI_Init(void)
   hspi.Instance               = SPI3;
   SPI_WIFI_MspInit(&hspi);
   
-  #ifdef TRACE
-  trace_printf("  [SPI_WIFI_Init] GPIO pins configured\n");
-  #endif
-  
   hspi.Init.Mode              = SPI_MODE_MASTER;
   hspi.Init.Direction         = SPI_DIRECTION_2LINES;
   hspi.Init.DataSize          = SPI_DATASIZE_16BIT;
@@ -157,47 +154,16 @@ int8_t SPI_WIFI_Init(void)
   if (HAL_SPI_Init(&hspi) != HAL_OK)
   {
     #ifdef TRACE
-    trace_printf("  [SPI_WIFI_Init] ERROR: HAL_SPI_Init failed!\n");
+    Error_Handler("  [SPI_WIFI_Init] ERROR: HAL_SPI_Init failed!\n");
     #endif
     return -1;
   }
-  
-  #ifdef TRACE
-  trace_printf("  [SPI_WIFI_Init] SPI peripheral initialized\n");
-  trace_printf("  [SPI_WIFI_Init] Resetting WiFi module...\n");
-  trace_printf("  [SPI_WIFI_Init] Setting reset pin LOW...\n");
-  #endif
-  
+    
   HAL_GPIO_WritePin(GPIOH, GPIO_PIN_1, GPIO_PIN_RESET);
-  
-  #ifdef TRACE
-  trace_printf("  [SPI_WIFI_Init] Waiting 10ms...\n");
-  #endif
-  
-  HAL_Delay(10);
-  
-  #ifdef TRACE
-  trace_printf("  [SPI_WIFI_Init] Setting reset pin HIGH...\n");
-  #endif
-  
+
   HAL_GPIO_WritePin(GPIOH, GPIO_PIN_1, GPIO_PIN_SET);
   
-  #ifdef TRACE
-  trace_printf("  [SPI_WIFI_Init] Waiting 100ms for module boot...\n");
-  #endif
-  
-  HAL_Delay(100);
-  
-  #ifdef TRACE
-  trace_printf("  [SPI_WIFI_Init] Reset complete, enabling NSS...\n");
-  #endif
-  
   WIFI_ENABLE_NSS();
-  
-  #ifdef TRACE
-  trace_printf("  [SPI_WIFI_Init] NSS enabled, checking data ready pin...\n");
-  trace_printf("  [SPI_WIFI_Init] Data ready pin state: %d\n", HAL_GPIO_ReadPin(GPIOG, GPIO_PIN_12));
-  #endif
   
   #ifdef TRACE
   trace_printf("  [SPI_WIFI_Init] Waiting for module ready (data ready pin)...\n");
@@ -206,15 +172,12 @@ int8_t SPI_WIFI_Init(void)
   tickstart = HAL_GetTick();
   uint32_t wait_count = 0;
   
-  /* Wait for data ready pin to go high (module has data) */
   while (!WIFI_IS_CMDDATA_READY())
   {
     wait_count++;
     if((HAL_GetTick() - tickstart) > 5000)  /* 5 second timeout */
     {
       #ifdef TRACE
-      trace_printf("  [SPI_WIFI_Init] ERROR: Timeout waiting for data ready pin (waited %lu ms)\n",
-                   HAL_GetTick() - tickstart);
       trace_printf("  [SPI_WIFI_Init] Data ready pin final state: %d\n", HAL_GPIO_ReadPin(GPIOG, GPIO_PIN_12));
       #endif
       WIFI_DISABLE_NSS();

@@ -29,7 +29,7 @@ extern "C" {
 
 /* HTML page with manual refresh button and compass display */
 #define HTML_PAGE_TEMPLATE                                                     \
-    "<!DOCTYPE html><html><head><title>STM32 Compass</title>"                 \
+    "<!DOCTYPE html><html><head><title>STM32 Compass</title>"                  \
     "<meta charset=\"UTF-8\">"                                                 \
     "<style>"                                                                  \
     "body{font:20px Arial;margin:40px;background:#222;color:#0f0;"             \
@@ -68,7 +68,7 @@ extern "C" {
     "</g>"                                                                     \
     "</svg>"                                                                   \
     "</div>"                                                                   \
-    "<div class=\"coords\">X: %s | Y: %s | Z: %s</div>"                       \
+    "<div class=\"coords\">X: %s | Y: %s | Z: %s</div>"                        \
     "<div class=\"coords\">Time: %lu ms</div>"                                 \
     "<button class=\"btn\" onclick=\"location.reload()\">Refresh</button>"     \
     "</body></html>"
