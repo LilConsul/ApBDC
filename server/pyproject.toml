@@ -1,0 +1,10 @@
+[project]
+name = "server"
+version = "0.1.0"
+description = "STM32 Compass HTTP server"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.136.1",
+    "python-multipart>=0.0.27",
+    "uvicorn>=0.46.0",
+]
