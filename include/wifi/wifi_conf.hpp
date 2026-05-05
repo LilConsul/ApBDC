@@ -2,13 +2,13 @@
 #define WIFI_CONF_HPP
 
 // Network credentials
-#define WIFI_SSID "giga35404"
-#define WIFI_PASSWORD "net702817"
+#define WIFI_SSID "CapOf"
+#define WIFI_PASSWORD "123232
 
 // Target HTTP server (Python server receiving heading data)
 // Update SERVER_IP_BYTES to match the machine running server/server.py
 #define SERVER_IP_BYTES \
-    { 192, 168, 1, 100 }
+    { 192, 168, 0, 53 }
 #define SERVER_PORT 5000
 #define SERVER_ENDPOINT "/data"
 
@@ -20,6 +20,6 @@
 #define HTTP_SEND_TIMEOUT 5000
 
 // How often to POST data to the server (milliseconds)
-#define HTTP_SEND_INTERVAL_MS 2000
+#define HTTP_SEND_INTERVAL_MS 1000
 
 #endif /* WIFI_CONF_HPP */
