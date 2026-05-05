@@ -14,7 +14,7 @@ or:
 """
 
 import datetime
-import threading
+import time
 
 import uvicorn
 from fastapi import FastAPI, Form, HTTPException
@@ -22,11 +22,11 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 app = FastAPI(title="STM32 Compass Server")
 
-# Shared state protected by a lock
-_lock = threading.Lock()
+# Shared state - simple dict, no lock needed for atomic operations
 _state: dict = {
     "degree": None,
     "updated_at": None,
+    "timestamp": 0,
 }
 
 # ---------------------------------------------------------------------------
@@ -57,7 +57,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 
   <script>
     let lastDegree = null;
-    let lastUpdate = null;
+    let compassSvg = null;
 
     function updateCompass(data) {
       const content = document.getElementById('content');
@@ -66,26 +66,43 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
       if (data.degree === null) {
         content.innerHTML = '<p class="no-data">Waiting for data from STM32&hellip;</p>';
         status.textContent = 'No data received yet';
-      } else {
-        const degree = parseFloat(data.degree);
+        compassSvg = null;
+        return;
+      }
+
+      const degree = parseFloat(data.degree);
+      
+      // Only update if degree changed
+      if (degree === lastDegree) return;
+      lastDegree = degree;
+
+      // Create compass only once
+      if (!compassSvg) {
         content.innerHTML = `
-          <div class="heading">${data.degree}&deg;</div>
-          <svg class="compass" viewBox="0 0 300 300">
+          <div class="heading" id="heading">${data.degree}&deg;</div>
+          <svg class="compass" viewBox="0 0 300 300" id="compass">
             <circle cx="150" cy="150" r="140" fill="#111" stroke="#0f0" stroke-width="3"/>
             <text x="150" y="30"  text-anchor="middle" fill="#f00" font-size="24" font-weight="bold">N</text>
             <text x="150" y="280" text-anchor="middle" fill="#0f0" font-size="20">S</text>
             <text x="270" y="155" text-anchor="middle" fill="#0f0" font-size="20">E</text>
             <text x="30"  y="155" text-anchor="middle" fill="#0f0" font-size="20">W</text>
-            <g transform="rotate(${degree} 150 150)">
+            <g id="needle">
               <polygon points="150,40 145,150 150,160 155,150" fill="#f00"/>
               <polygon points="150,160 145,150 150,260 155,150" fill="#fff"/>
               <circle cx="150" cy="150" r="8" fill="#ff0"/>
             </g>
           </svg>
-          <div class="info">Last update: ${data.updated_at}</div>
+          <div class="info" id="info">Last update: ${data.updated_at}</div>
         `;
-        status.textContent = 'Connected - Live updates';
+        compassSvg = document.getElementById('needle');
+      } else {
+        // Just update rotation and text
+        document.getElementById('heading').textContent = data.degree + '°';
+        document.getElementById('info').textContent = 'Last update: ' + data.updated_at;
       }
+      
+      compassSvg.setAttribute('transform', `rotate(${degree} 150 150)`);
+      status.textContent = 'Connected - Live updates';
     }
 
     async function fetchData() {
@@ -102,8 +119,8 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
       }
     }
 
-    // Poll every 500ms for smooth updates
-    setInterval(fetchData, 1000);
+    // Poll every 200ms for smooth updates
+    setInterval(fetchData, 200);
     
     // Initial fetch
     fetchData();
@@ -128,13 +145,17 @@ async def get_data() -> JSONResponse:
     Return current heading data as JSON for AJAX requests.
     Returns: {"degree": "123.4", "updated_at": "2026-05-05 14:20:00"}
     """
-    with _lock:
-        degree = _state["degree"]
-        updated_at = _state["updated_at"]
+    # Check if data is stale (older than 5 seconds)
+    now = time.time()
+    if _state["timestamp"] > 0 and (now - _state["timestamp"]) > 5:
+        return JSONResponse({
+            "degree": None,
+            "updated_at": "Connection lost"
+        })
     
     return JSONResponse({
-        "degree": degree,
-        "updated_at": updated_at
+        "degree": _state["degree"],
+        "updated_at": _state["updated_at"]
     })
 
 
@@ -151,12 +172,14 @@ async def receive_data(degree: str = Form(...)) -> JSONResponse:
                             detail=f"invalid degree value: {degree!r}")
 
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    with _lock:
-        _state["degree"] = f"{degree_value:.1f}"
-        _state["updated_at"] = now
+    
+    # Update state - atomic for simple types
+    _state["degree"] = f"{degree_value:.1f}"
+    _state["updated_at"] = now
+    _state["timestamp"] = time.time()
 
-    print(f"[{now}] Received heading: {degree_value:.1f}\u00b0")
-    return JSONResponse({"status": "ok", "degree": degree_value})
+    print(f"[{now}] Received heading: {degree_value:.1f}°")
+    return JSONResponse({"status": "ok"})
 
 
 # ---------------------------------------------------------------------------
@@ -165,7 +188,7 @@ async def receive_data(degree: str = Form(...)) -> JSONResponse:
 
 if __name__ == "__main__":
     print("STM32 Compass Server starting on http://0.0.0.0:5000")
-    print("  POST /data      \u2014 receive heading from STM32")
-    print("  GET  /          \u2014 view live compass page")
-    print("  GET  /api/data  \u2014 AJAX endpoint for current data")
+    print("  POST /data      — receive heading from STM32")
+    print("  GET  /          — view live compass page")
+    print("  GET  /api/data  — AJAX endpoint for current data")
     uvicorn.run("server:app", host="0.0.0.0", port=5000, reload=False)
