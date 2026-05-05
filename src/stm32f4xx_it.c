@@ -9,8 +9,8 @@
 #include "sensor/magnetometer_stream.h"
 #include "stm32f4xx_hal.h"
 
-/* External flag declarations from main.cpp */
-extern volatile uint8_t http_process_flag;
+/* Flag set by TIM3 ISR to trigger an HTTP POST in the main loop */
+extern volatile uint8_t http_send_flag;
 
 /* External TIM2 handle from magnetometer_stream.c */
 extern TIM_HandleTypeDef htim2;
@@ -81,17 +81,7 @@ void PendSV_Handler(void) {
  * @brief This function handles System tick timer.
  */
 void SysTick_Handler(void) {
-    static uint32_t poll_counter = 0;
-
     HAL_IncTick();
-
-    /* Poll for HTTP data every 100ms as fallback (in case DRDY interrupt is
-     * missed) */
-    poll_counter++;
-    if (poll_counter >= 100) {
-        poll_counter = 0;
-        http_process_flag = 1;
-    }
 }
 
 /******************************************************************************/
@@ -146,6 +136,17 @@ void EXTI15_10_IRQHandler(void) {
  */
 void TIM2_IRQHandler(void) {
     HAL_TIM_IRQHandler(&htim2);
+}
+
+/**
+ * @brief This function handles TIM3 global interrupt (HTTP send trigger).
+ */
+void TIM3_IRQHandler(void) {
+    /* Clear TIM3 update interrupt flag and set the HTTP send flag */
+    if (TIM3->SR & TIM_SR_UIF) {
+        TIM3->SR &= ~TIM_SR_UIF;
+        http_send_flag = 1;
+    }
 }
 
 /**
