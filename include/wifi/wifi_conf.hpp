@@ -3,7 +3,7 @@
 
 // Network credentials
 #define WIFI_SSID "CapOf"
-#define WIFI_PASSWORD "123232
+#define WIFI_PASSWORD ""
 
 // Target HTTP server (Python server receiving heading data)
 // Update SERVER_IP_BYTES to match the machine running server/server.py
@@ -20,6 +20,6 @@
 #define HTTP_SEND_TIMEOUT 5000
 
 // How often to POST data to the server (milliseconds)
-#define HTTP_SEND_INTERVAL_MS 1000
+#define HTTP_SEND_INTERVAL_MS 500
 
 #endif /* WIFI_CONF_HPP */
