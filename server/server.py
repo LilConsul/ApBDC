@@ -103,7 +103,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
     }
 
     // Poll every 500ms for smooth updates
-    setInterval(fetchData, 500);
+    setInterval(fetchData, 1000);
     
     // Initial fetch
     fetchData();
