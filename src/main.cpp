@@ -21,6 +21,9 @@ static uint8_t server_ip[4] = SERVER_IP_BYTES;
 
 /* Flag set by TIM3 ISR to trigger an HTTP POST */
 volatile uint8_t http_send_flag = 0;
+/* Flags used by WiFi driver ISR (defined here to satisfy externs in es_wifi_io.h) */
+volatile uint8_t http_process_flag = 0;
+volatile uint8_t server_maintenance_flag = 0;
 
 /* Private function prototypes -----------------------------------------------*/
 static void SystemClock_Config(void);
