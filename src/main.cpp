@@ -1,10 +1,12 @@
 #include "diag/trace.h"
 #include "es_wifi_io.h"
-#include "stm32f413h_discovery.h"
+#include "http_client.h"
+#include "sensor/magnetometer_stream.h"
 #include "stm32f4xx_hal.h"
-#include "wifi.h"
 #include <stdio.h>
+#include <stm32f413h_discovery.h>
 #include <string.h>
+#include <wifi.h>
 #include "error_handler.hpp"
 #include "wifi_conf.hpp"
 
@@ -13,44 +15,23 @@
 #pragma GCC diagnostic ignored "-Wmissing-declarations"
 #pragma GCC diagnostic ignored "-Wreturn-type"
 
-/* Private defines -----------------------------------------------------------*/
-#define HTTP_RESPONSE_HEADER                                                   \
-    "HTTP/1.1 200 OK\r\n"                                                      \
-    "Content-Type: text/html\r\n"                                              \
-    "Connection: close\r\n"                                                    \
-    "\r\n"
-
-#define HTML_PAGE                                                              \
-    "<!DOCTYPE html>"                                                          \
-    "<html><head><title>STM32F413H WiFi Server</title>"                        \
-    "<style>body{font-family:Arial;margin:40px;background:#f0f0f0;}"           \
-    "h1{color:#0066cc;}p{font-size:18px;}</style></head>"                      \
-    "<body><h1>STM32F413H Discovery WiFi Server</h1>"                          \
-    "<p>WiFi module is working!</p>"                                           \
-    "<p>Board: STM32F413H-Discovery</p>"                                       \
-    "<p>WiFi Module: ISM43362</p>"                                             \
-    "<p>Status: Connected and Running</p>"                                     \
-    "</body></html>"
-
-/* Server state machine states */
-typedef enum {
-    SERVER_STATE_IDLE = 0,
-    SERVER_STATE_SENT_RESPONSE
-} ServerState_t;
-
 /* Private variables ---------------------------------------------------------*/
 static uint8_t http_buffer[HTTP_BUFFER_SIZE];
-static uint8_t ip_addr[4];
-static ServerState_t server_state = SERVER_STATE_IDLE;
-static uint32_t request_count = 0;
-static uint8_t restart_step = 0;
+static uint8_t server_ip[4] = SERVER_IP_BYTES;
+
+/* Flag set by TIM3 ISR to trigger an HTTP POST */
+volatile uint8_t http_send_flag = 0;
+/* Flags used by WiFi driver ISR (defined here to satisfy externs in es_wifi_io.h) */
+volatile uint8_t http_process_flag = 0;
+volatile uint8_t server_maintenance_flag = 0;
 
 /* Private function prototypes -----------------------------------------------*/
 static void SystemClock_Config(void);
 static void LED_Init(void);
+static void TIM3_Init(void);
 static void WiFi_InitAndConnect(void);
-static void HTTP_ServerProcess(void);
-static void HTTP_ServerMaintenance(void);
+static void HTTP_SendHeading(void);
+static float simple_atan2(float y, float x);
 
 [[noreturn]]
 int main(int argc, char *argv[]) {
@@ -60,201 +41,177 @@ int main(int argc, char *argv[]) {
     Error_Handler_Init();
 
     trace_printf("\n\n");
-    trace_printf("========================================\n");
-    trace_printf("  STM32F413H WiFi HTTP Server\n");
-    trace_printf("  (Interrupt-Driven Architecture)\n");
-    trace_printf("========================================\n");
+    trace_printf("================================\n");
+    trace_printf("  STM32F413H WiFi HTTP Client\n");
+    trace_printf("================================\n");
     trace_printf("Initializing...\n\n");
+
+    /* Initialize magnetometer streaming module */
+    trace_printf("Step 1: Initializing magnetometer...\n");
+    if (Magnetometer_Init() != 0) {
+        trace_printf("ERROR: Magnetometer initialization failed!\n");
+        Error_Handler("Magnetometer Init Failed");
+    }
+    trace_printf("  -> Magnetometer initialized\n\n");
 
     WiFi_InitAndConnect();
 
-    trace_printf("\n========================================\n");
-    trace_printf("  Server Ready!\n");
-    trace_printf("========================================\n");
-    trace_printf("Access the server at: http://%d.%d.%d.%d\n", ip_addr[0],
-                 ip_addr[1], ip_addr[2], ip_addr[3]);
-    trace_printf("Waiting for HTTP requests...\n");
-    trace_printf("CPU will enter low-power mode (WFI) between requests\n\n");
+    trace_printf("\nStep 4: Starting magnetometer sampling...\n");
+    Magnetometer_StartSampling();
+    trace_printf("  -> Magnetometer sampling started at 20Hz\n");
+
+    trace_printf("\nStep 5: Starting HTTP send timer (every %d ms)...\n",
+                 HTTP_SEND_INTERVAL_MS);
+    TIM3_Init();
+    trace_printf("  -> TIM3 configured for %d ms periodic HTTP POST\n",
+                 HTTP_SEND_INTERVAL_MS);
+
+    trace_printf("\n======================\n");
+    trace_printf("  Client Ready!\n");
+    trace_printf("======================\n");
+    trace_printf("Sending heading to http://%d.%d.%d.%d:%d%s\n",
+                 server_ip[0], server_ip[1], server_ip[2], server_ip[3],
+                 SERVER_PORT, SERVER_ENDPOINT);
+    trace_printf("CPU will enter low-power mode (WFI) between sends\n\n");
 
     BSP_LED_On(LED_GREEN);
 
     while (1) {
-        /* Process HTTP requests when flag is set */
-        if (http_process_flag) {
-            http_process_flag = 0;
-            HTTP_ServerProcess();
-        }
-
-        /* Perform maintenance when timer expires */
-        if (server_maintenance_flag) {
-            server_maintenance_flag = 0;
-            HTTP_ServerMaintenance();
+        if (http_send_flag) {
+            http_send_flag = 0;
+            HTTP_SendHeading();
         }
 
         __WFI();
     }
 }
 
+/**
+ * @brief  Connect to WiFi network (no server startup)
+ */
 static void WiFi_InitAndConnect(void) {
     WIFI_Status_t status;
 
-    trace_printf("Step 1: Initializing WiFi module...\n");
+    trace_printf("Step 2: Initializing WiFi module...\n");
     status = WIFI_Init();
     if (status != WIFI_STATUS_OK) {
-        trace_printf("ERROR: WiFi initialization failed! (Status: %d)\n",
-                     status);
-        Error_Handler("WiFi Init Failed");
+        Error_Handler("ERROR: WiFi initialization failed! (Status: %d)\n",
+                      status);
     }
     trace_printf("  -> WiFi module initialized\n");
 
-    trace_printf("\nStep 2: Connecting to network '%s'...\n", WIFI_SSID);
+    trace_printf("\nStep 3: Connecting to network '%s'...\n", WIFI_SSID);
     status = WIFI_Connect(WIFI_SSID, WIFI_PASSWORD, WIFI_ECN_WPA2_PSK);
     if (status != WIFI_STATUS_OK) {
-        trace_printf("ERROR: WiFi connection failed! (Status: %d)\n", status);
-        trace_printf("  Check SSID and password in wifi_conf.hpp\n");
-        Error_Handler("WiFi Connect Failed");
+        Error_Handler("ERROR: WiFi connection failed! (Status: %d)\nCheck SSID "
+                      "and password in include/wifi/wifi_conf.hpp",
+                      status);
     }
     trace_printf("  -> Connected to WiFi network\n");
-
-    trace_printf("\nStep 3: Getting IP address...\n");
-    status = WIFI_GetIP_Address(ip_addr);
-    if (status != WIFI_STATUS_OK) {
-        trace_printf("ERROR: Failed to get IP address! (Status: %d)\n", status);
-        Error_Handler("Get IP Failed");
-    }
-    trace_printf("  -> IP Address: %d.%d.%d.%d\n", ip_addr[0], ip_addr[1],
-                 ip_addr[2], ip_addr[3]);
-
-    trace_printf("\nStep 4: Starting HTTP server on port %d...\n",
-                 HTTP_SERVER_PORT);
-    status = WIFI_StartServer(0, WIFI_TCP_PROTOCOL, "HTTP", HTTP_SERVER_PORT);
-    if (status != WIFI_STATUS_OK) {
-        trace_printf("ERROR: Failed to start HTTP server! (Status: %d)\n",
-                     status);
-        Error_Handler("HTTP Server Start Failed");
-    }
-    trace_printf("  -> HTTP server started\n");
 }
 
 /**
- * @brief  Process HTTP requests (interrupt-driven, non-blocking)
- * @param  None
- * @retval None
+ * @brief  Build HTTP POST body and send heading to the Python server
  */
-static void HTTP_ServerProcess(void) {
-    uint16_t recv_len = 0;
+static void HTTP_SendHeading(void) {
+    MagSample_t sample;
+    char degree_str[16] = "0.0";
+    char body[32];
+    int body_len;
+    int request_len;
     uint16_t sent_len = 0;
     WIFI_Status_t status;
 
-    /* Only process if in idle state */
-    if (server_state != SERVER_STATE_IDLE) {
-        return; /* Server busy with maintenance */
+    BSP_LED_Off(LED_GREEN);
+
+    /* Read the latest magnetometer sample */
+    if (Magnetometer_GetAvailableSamples() > 0 &&
+        Magnetometer_ReadSample(&sample)) {
+        float heading =
+            simple_atan2(sample.y, sample.x) * 180.0f / 3.14159265f;
+        if (heading < 0) {
+            heading += 360.0f;
+        }
+        snprintf(degree_str, sizeof(degree_str), "%.1f", heading);
     }
 
-    /* Try to receive data */
-    status = WIFI_ReceiveData(0, http_buffer, HTTP_BUFFER_SIZE - 1, &recv_len);
+    /* Build POST body: "degree=<value>" */
+    body_len = snprintf(body, sizeof(body), "degree=%s", degree_str);
 
-    /* Silently ignore socket errors */
-    if (status != WIFI_STATUS_OK || recv_len == 0) {
+    /* Build server IP string for the Host header */
+    char host_str[24];
+    snprintf(host_str, sizeof(host_str), "%d.%d.%d.%d",
+             server_ip[0], server_ip[1], server_ip[2], server_ip[3]);
+
+    /* Build full HTTP POST request */
+    request_len = snprintf((char *)http_buffer, HTTP_BUFFER_SIZE,
+                           HTTP_POST_REQUEST_FMT,
+                           host_str,
+                           body_len,
+                           degree_str);
+
+    trace_printf("[SEND] Heading: %s deg -> %s:%d\n", degree_str, host_str,
+                 SERVER_PORT);
+
+    /* Open TCP connection to server */
+    status = WIFI_OpenClientConnection(0, WIFI_TCP_PROTOCOL, "HTTP",
+                                       (char *)server_ip, SERVER_PORT, 0);
+    if (status != WIFI_STATUS_OK) {
+        trace_printf("[SEND] ERROR: Failed to open connection (Status: %d)\n",
+                     status);
+        BSP_LED_On(LED_GREEN);
         return;
     }
 
-    /* We have valid data - check what it is */
-    if (recv_len > 0) {
-        http_buffer[recv_len] = '\0';
-
-        /* Filter out WiFi module status messages */
-        if (strstr((char *)http_buffer, "[SOMA]") != NULL ||
-            strstr((char *)http_buffer, "[EOMA]") != NULL ||
-            strstr((char *)http_buffer, "Unhandled Socket") != NULL ||
-            strstr((char *)http_buffer, "TCP SVR") != NULL ||
-            strcmp((char *)http_buffer, "-1") == 0 ||
-            (recv_len <= 3 && http_buffer[0] == '-')) {
-            return; /* Silently ignore status messages */
-        }
-
-        /* This appears to be an actual HTTP request */
-        request_count++;
-
-        char *request_line = strtok((char *)http_buffer, "\r\n");
-        trace_printf("[%lu] %s\n", request_count,
-                     request_line ? request_line : "Invalid request");
-
-        /* Blink green LED briefly on each request (turn off, will turn back on after processing) */
-        BSP_LED_Off(LED_GREEN);
-
-        /* Restore buffer for processing (strtok modified it) */
-        http_buffer[recv_len] = '\0';
-
-        /* Check if it's a GET request */
-        if (strncmp((char *)http_buffer, "GET", 3) == 0) {
-            char response[1024];
-            snprintf(response, sizeof(response), "%s%s", HTTP_RESPONSE_HEADER,
-                     HTML_PAGE);
-
-            /* Send response */
-            status = WIFI_SendData(0, (uint8_t *)response, strlen(response),
-                                   &sent_len);
-
-            if (status == WIFI_STATUS_OK) {
-                trace_printf("[%lu] Sent response (%d bytes)\n", request_count,
-                             sent_len);
-                
-                /* Turn green LED back on after successful response */
-                BSP_LED_On(LED_GREEN);
-                
-                /* Wait for data transmission */
-                HAL_Delay(250);
-                
-                /* Close connection */
-                WIFI_CloseClientConnection();
-                trace_printf("  -> Connection closed\n");
-                
-                /* Stop and restart server to accept new connections */
-                WIFI_StopServer(0);
-                trace_printf("  -> Server stopped\n");
-                
-                HAL_Delay(100);
-                
-                status = WIFI_StartServer(0, WIFI_TCP_PROTOCOL, "HTTP", HTTP_SERVER_PORT);
-                if (status == WIFI_STATUS_OK) {
-                    trace_printf("  -> Server restarted, ready for next request\n");
-                } else {
-                    trace_printf("  -> ERROR: Failed to restart server!\n");
-                }
-            } else {
-                trace_printf(
-                    "[%lu] ERROR: Failed to send response (Status: %d)\n",
-                    request_count, status);
-                BSP_LED_On(LED_GREEN);
-            }
-
-            /* Return to idle */
-            server_state = SERVER_STATE_IDLE;
-        }
+    /* Send HTTP POST request */
+    status = WIFI_SendData(0, http_buffer, (uint16_t)request_len, &sent_len);
+    if (status == WIFI_STATUS_OK) {
+        trace_printf("[SEND] OK (%d bytes)\n", sent_len);
+    } else {
+        trace_printf("[SEND] ERROR: Send failed (Status: %d)\n", status);
     }
+
+    /* Close TCP connection */
+    WIFI_CloseClientConnection();
+
+    BSP_LED_On(LED_GREEN);
 }
 
 /**
- * @brief  Perform server maintenance tasks (timer-driven)
- * @param  None
- * @retval None
+ * @brief  Initialize TIM3 to fire every HTTP_SEND_INTERVAL_MS milliseconds
  */
-static void HTTP_ServerMaintenance(void) {
-    /* No maintenance needed - all handled inline in HTTP_ServerProcess */
-    /* This function kept for future use if needed */
+static void TIM3_Init(void) {
+    static TIM_HandleTypeDef htim3; /* static: handle must outlive this function */
+    memset(&htim3, 0, sizeof(htim3));
+
+    /* TIM3 clock: 16 MHz, prescaler 16000-1 → 1 kHz tick */
+    __HAL_RCC_TIM3_CLK_ENABLE();
+
+    htim3.Instance               = TIM3;
+    htim3.Init.Prescaler         = (16000 - 1);
+    htim3.Init.CounterMode       = TIM_COUNTERMODE_UP;
+    htim3.Init.Period            = (HTTP_SEND_INTERVAL_MS - 1);
+    htim3.Init.ClockDivision     = TIM_CLOCKDIVISION_DIV1;
+    htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+
+    if (HAL_TIM_Base_Init(&htim3) != HAL_OK) {
+        Error_Handler("TIM3 Init Failed");
+    }
+
+    HAL_NVIC_SetPriority(TIM3_IRQn, 6, 0);
+    HAL_NVIC_EnableIRQ(TIM3_IRQn);
+
+    HAL_TIM_Base_Start_IT(&htim3);
 }
 
 static void LED_Init(void) {
     GPIO_InitTypeDef GPIO_InitStruct = {0};
-    
-    /* Initialize user LEDs */
+
     BSP_LED_Init(LED_GREEN);
     BSP_LED_Init(LED_RED);
     BSP_LED_Off(LED_GREEN);
     BSP_LED_Off(LED_RED);
-    
-    /* Initialize MEMS_LED (PE4) and ensure it's off to prevent dim glow */
+
     __HAL_RCC_GPIOE_CLK_ENABLE();
     GPIO_InitStruct.Pin = GPIO_PIN_4;
     GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -266,13 +223,15 @@ static void LED_Init(void) {
 
 static void SystemClock_Config(void) {
     RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-    RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+    RCC_ClkInitTypeDef RCC_ClkInitStruct = {.ClockType = 0,
+                                            .SYSCLKSource = 0,
+                                            .AHBCLKDivider = 0,
+                                            .APB1CLKDivider = 0,
+                                            .APB2CLKDivider = 0};
 
-    /* Configure the main internal regulator output voltage */
     __HAL_RCC_PWR_CLK_ENABLE();
     __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
 
-    /* Use HSI directly (16 MHz) - simplest, most reliable configuration */
     RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
     RCC_OscInitStruct.HSIState = RCC_HSI_ON;
     RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
@@ -282,7 +241,6 @@ static void SystemClock_Config(void) {
         Error_Handler("Clock Config Failed - HSI");
     }
 
-    /* Configure CPU, AHB and APB buses clocks */
     RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK |
                                   RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
     RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
@@ -294,14 +252,27 @@ static void SystemClock_Config(void) {
         Error_Handler("Clock Config Failed - Buses");
     }
 
-    /* CRITICAL: Configure SysTick to generate interrupts at 1kHz (1ms) */
     HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq() / 1000);
 
-    /* Set SysTick clock source */
     HAL_SYSTICK_CLKSourceConfig(SYSTICK_CLKSOURCE_HCLK);
 
-    /* SysTick_IRQn interrupt configuration */
     HAL_NVIC_SetPriority(SysTick_IRQn, 0, 0);
+}
+
+/* Simple atan2 approximation for heading calculation */
+static float simple_atan2(float y, float x) {
+    float abs_y = (y < 0) ? -y : y;
+    float angle;
+
+    if (x >= 0) {
+        float r = (x - abs_y) / (x + abs_y);
+        angle = 0.785398163f - 0.785398163f * r;
+    } else {
+        float r = (x + abs_y) / (abs_y - x);
+        angle = 2.356194490f - 0.785398163f * r;
+    }
+
+    return (y < 0) ? -angle : angle;
 }
 
 #pragma GCC diagnostic pop
